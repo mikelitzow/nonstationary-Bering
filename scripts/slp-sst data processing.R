@@ -1,4 +1,4 @@
-library(dplyr)
+library(tidyverse)
 library(ncdf4)
 library(maps)
 library(maptools)
@@ -92,6 +92,10 @@ mu <- apply(X, 2, f)	# compute monthly means for each time series (cell)
 mu <- mu[rep(1:12, length(m)/12),]  # replicate means matrix for each year at each location
 
 slp.anom <- X - mu   # compute matrix of anomalies
+
+# save for SDE analysis!
+write.csv(slp.anom, "./data/north.pacific.slp.anom.csv")
+
 
 # will use winter (NDJFM) SLP 
 
