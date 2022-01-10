@@ -15,16 +15,28 @@ library(sinkr)
  # devtools::install_github("marchtaylor/sinkr")
 
 # load slp
-dat <- nc_open("data/NCEP.NCAR.slp.nc")
+# identify latest year and month needed
+year <- 2021
+month <- "12"
+query <- c("f19d_3925_d70b.nc?slp")
+
+variable <- "slp"
+
+URL <- paste("http://apdrc.soest.hawaii.edu/erddap/griddap/hawaii_soest_", query, "[(1948-01-01):1:(", year, "-",
+               month, "-01T00:00:00Z)][(19.99970054626):1:(69.52169799805)][(120):1:(249.375)]", sep="")
+
+# paste URL into browser to download
+
+dat <- nc_open("data/hawaii_soest_f19d_3925_d70b_f63c_43ff_14ca.nc")
 
 x <- ncvar_get(dat, "longitude")
 y <- ncvar_get(dat, "latitude")
 slp <- ncvar_get(dat, "slp", verbose = F)
-dim(slp) # 144 long, 29 lat, 864 months
+dim(slp) # 53 long, 21 lat, 888 months
 
 # need to reverse latitude for plotting!
-y <- rev(y)
-slp <- slp[,29:1,]
+# y <- rev(y)
+# slp <- slp[,21:1,]
 
 # first, extract dates
 raw <- ncvar_get(dat, "time") # seconds since 1-1-1970
@@ -52,7 +64,8 @@ image(x,y,z, col=tim.colors(64), xlab = "", ylab = "")
 contour(x,y,z, add=T, col="white",vfont=c("sans serif", "bold"))
 map('world2Hires', add=T, lwd=1)
 
-# limit to 1951:2013
+
+# limit to 1950:2013
 slp <- slp[yr %in% 1950:2013,]
 m <- m[yr %in% 1950:2013]
 yr <- yr[yr %in% 1950:2013]
@@ -95,6 +108,102 @@ slp.anom <- X - mu   # compute matrix of anomalies
 
 # save for SDE analysis!
 write.csv(slp.anom, "./data/north.pacific.slp.anom.csv")
+
+# and also save weights for EOF!
+# get a vector of weights (square root of the cosine of latitude)
+
+temp1 <- str_split(colnames(X), "E", simplify = T)[,1]
+X.lats <- as.numeric(str_split(temp1, "N", simplify = T)[,2])
+
+weight <- sqrt(cos(X.lats*pi/180))
+
+# save
+write.csv(weight, "./data/north.pacific.slp.weights.csv")
+
+## extract SST
+####################
+# add ERSST v5
+
+# download.file("https://coastwatch.pfeg.noaa.gov/erddap/griddap/nceiErsstv5.nc?sst[(1950-01-01):1:(2021-12-01)][(0.0):1:(0.0)][(54):1:(66)][(188):1:(202)]", "data/ersst")
+# load and process SST data
+
+nc <- nc_open("./data/nceiErsstv5_4937_dc60_d17c.nc")
+
+# extract dates
+
+ncvar_get(nc, "time")   # seconds since 1-1-1970
+raw <- ncvar_get(nc, "time")
+h <- raw/(24*60*60)
+d <- dates(h, origin = c(1,1,1970))
+m <- months(d)
+yr <- years(d)
+
+# extract study area
+# 54-66 deg. N, 188-202 deg. E
+x <- ncvar_get(nc, "longitude")
+y <- ncvar_get(nc, "latitude")
+
+SST <- ncvar_get(nc, "sst", verbose = F)
+
+# Change data from a 3-D array to a matrix of monthly data by grid point:
+# First, reverse order of dimensions ("transpose" array)
+SST <- aperm(SST, 3:1)  
+
+# Change to matrix with column for each grid point, rows for monthly means
+SST <- matrix(SST, nrow=dim(SST)[1], ncol=prod(dim(SST)[2:3]))  
+
+# Keep track of corresponding latitudes and longitudes of each column:
+lat <- rep(y, length(x))   
+lon <- rep(x, each = length(y))   
+dimnames(SST) <- list(as.character(d), paste("N", lat, "E", lon, sep=""))
+
+# need to drop GOA cells
+GOA <- c("N54E194", "N54E196", "N54E198", "N54E200", "N54E202", "N56E200", "N56E202")
+SST[,GOA] <- NA
+
+# plot to check
+SST.mean <- colMeans(SST)
+z <- t(matrix(SST.mean,length(y)))  # Re-shape to a matrix with latitudes in columns, longitudes in rows
+image(x,y,z, col=tim.colors(64))
+contour(x, y, z, add=T)  # Mean temperature pattern! Looks correct, that's good!
+map('world2Hires',fill=F,xlim=c(130,250), ylim=c(20,66),add=T, lwd=2)
+
+
+# now split into northern and southern EBS
+south <- lat < 62 # redefining as cell centers <62N, border < 61N
+sst.south <- SST[,south]
+
+# limit to 1950-2013
+sst.south <- sst.south[yr %in% 1950:2013,]
+m <- m[yr %in% 1950:2013]
+yr <- yr[yr %in% 1950:2013]
+
+# get anomalies
+
+f <- function(x) tapply(x, m, mean)  # function to compute monthly means for a single time series
+mu <- apply(sst.south, 2, f)	# compute monthly means for each time series (cell)
+mu <- mu[rep(1:12, length(m)/12),]  # replicate means matrix for each year at each location
+
+sst.anom <- sst.south - mu   # compute matrix of anomalies
+
+# get average anomalies for the whole ares
+sst.anom <- rowMeans(sst.anom, na.rm = T)
+
+sst.anom <- data.frame(date = names(sst.anom),
+                       anom = as.vector(sst.anom))
+
+plot <- data.frame(dec.yr = as.numeric(as.character(yr))+ (as.numeric(m)-0.5)/12,
+                   anom = sst.anom$anom)
+
+ggplot(plot, aes(dec.yr, anom)) +
+  geom_line()
+
+# save for SDE analysis!
+write.csv(sst.anom, "./data/ebs.sst.anom.csv")
+
+
+#########################################
+## below is old, from different project!
 
 
 # will use winter (NDJFM) SLP 
