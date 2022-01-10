@@ -1,14 +1,279 @@
-# compare the ability to reconstruct variability in PDO and NPGO
-# using AR(1) models forced by SLP variability
+# evaluate time-dependent slp-sst relationships affecting Bering Sea ecosystem
 
 library(tidyverse)
 library(sde)
 library(rstan)
 library(ggpubr)
+library(FactoMineR)
 
 # plot settings
 theme_set(theme_bw())
 cb <- c("#999999", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+
+
+# begin with North Pacific SLP EOF1
+
+# load slp and cell weights
+slp <- read.csv("./data/north.pacific.slp.anom.csv", row.names = 1)
+
+weights <- read.csv("./data/north.pacific.slp.weights.csv", row.names = 1)
+
+pca <- svd.triplet(cov(slp), col.w=weights[,1]) #weighting the columns
+
+pc1 <- as.matrix(slp) %*% pca$U[,1]
+
+# and scale!
+pc1 <- as.vector(scale(pc1))
+
+# load mean EBS sst anomaly
+sst <- read.csv("./data/ebs.sst.anom.csv", row.names = 1)
+
+# examine strongest correlative relationships -
+# at various degrees of slp smoothing and lags
+
+# smooth slp pc1
+pc1.sm.1 <- pc1
+pc1.sm.2 <- rollmean(pc1, 2, fill = NA, align = "right")
+pc1.sm.3 <- rollmean(pc1, 3, fill = NA, align = "right")
+pc1.sm.4 <- rollmean(pc1, 4, fill = NA, align = "right")
+pc1.sm.5 <- rollmean(pc1, 5, fill = NA, align = "right")
+pc1.sm.6 <- rollmean(pc1, 6, fill = NA, align = "right")
+pc1.sm.7 <- rollmean(pc1, 7, fill = NA, align = "right")
+pc1.sm.8 <- rollmean(pc1, 8, fill = NA, align = "right")
+pc1.sm.9 <- rollmean(pc1, 9, fill = NA, align = "right")
+
+# examine cross-correlations
+ccf(sst[,2], pc1.sm.1, lag.max = 10)
+ccf(sst[2:768,2], pc1.sm.2[2:768], lag.max = 10)
+ccf(sst[3:768,2], pc1.sm.3[3:768], lag.max = 10)
+ccf(sst[4:768,2], pc1.sm.4[4:768], lag.max = 10)
+ccf(sst[5:768,2], pc1.sm.5[5:768], lag.max = 10)
+ccf(sst[6:768,2], pc1.sm.6[6:768], lag.max = 10)
+ccf(sst[7:768,2], pc1.sm.7[7:768], lag.max = 10)
+ccf(sst[8:768,2], pc1.sm.8[8:768], lag.max = 10)
+ccf(sst[9:768,2], pc1.sm.9[9:768], lag.max = 10)
+
+print(ccf(sst[5:768,2], pc1.sm.5[5:768], lag.max = 10))
+print(ccf(sst[6:768,2], pc1.sm.6[6:768], lag.max = 10))
+print(ccf(sst[7:768,2], pc1.sm.7[7:768], lag.max = 10))
+print(ccf(sst[8:768,2], pc1.sm.8[8:768], lag.max = 10))
+print(ccf(sst[9:768,2], pc1.sm.9[9:768], lag.max = 10))
+
+# so - for a first cut, 6 month smooths, lag 1 (i.e., slp averaged over lags -1 : -7)
+# appears reasonable
+
+# now we can go back and fit EOF1 to each 20-year rolling window, then fit
+# sst-slp SDE model to those data, and save resulting correlation
+
+
+# first, fit to the entire time series
+
+# make a data frame
+yr <- as.numeric(as.character(chron::years(sst$date)))
+
+# and fix incorrect years!
+fix <- yr > 2030
+yr[fix] <- yr[fix] - 100
+
+m <- as.numeric(months(sst$date))
+
+
+dat <- data.frame(date = lubridate::parse_date_time(x = paste(yr, m, "01"), orders="ymd", tz="America/Anchorage"),
+                sst = sst[,2],
+                slp = c(NA, pc1.sm.6[1:863]))
+
+# and drop NAs
+dat <- na.omit(dat)
+
+
+# ar_ls calculates the process deviations after
+# accounting for forcing variables and autocorrelation,
+# (1-gamma)
+ar_ls = function(time,forcing,gamma) {
+  #S(t+1) = (1-GAMMA*DT)*S(t) + F(t)*DT
+  forcing = c(forcing - mean(forcing))
+  T=length(forcing)
+  sig = 0
+  
+  for(t in 1:(T-1)) {
+    #sig[t+1] = -theta*sig[t] + forcing[t]
+    sig[t+1] = (1-gamma)*sig[t] + forcing[t]
+  }
+  
+  # next estimates are linearly de-trended
+  #s.sig = sig
+  sig = sig - lm(sig ~ time)$fitted.values
+  # interpolate output on the original time grid
+  s.sig=(sig[-1]+sig[-T])/2 # midpoint
+  # final step is normalize
+  s.sig=s.sig/sd(s.sig)
+  return(s.sig)
+}
+
+calc_ss = function(theta) {
+  pred_ts = ar_ls(1:nrow(dat), forcing=dat$slp, theta)
+  ss = sum((pred_ts - dat$sst)^2) # return SS for optim (minimizes by default)
+}
+
+# optimize by default is minimizing (with maximum = FALSE)
+o = optimize(f=calc_ss, interval = c(0,1), maximum=FALSE)
+
+pred_ts = ar_ls(1:nrow(dat), forcing=dat$slp,
+                gamma = o$minimum)
+
+# save gamma estimate for comparison to Bayes version below
+pdo.gamma.ls <- o$minimum
+
+pred.sst = data.frame(t = dat$date,
+                      sst = dat$sst,
+                      integrated.slp = c(0,-as.numeric(pred_ts))) ## NB - reversing the sign of integrated SLP
+
+
+cor(pred.sst$sst, pred.sst$integrated.slp)
+
+
+pred.sst <- pred.sst %>%
+  mutate(integrated.slp = integrated.slp) %>%
+  pivot_longer(cols = -t)
+
+sst.reconstruct <- ggplot(pred.sst, aes(t, value, color = name)) +
+  geom_line() +
+  scale_color_manual(values = cb[c(2,6)], labels = c("Integrated SLP", "SST")) +
+  theme(legend.title = element_blank(),
+        legend.position = c(0.8, 0.95),
+        axis.title.x = element_blank()) +
+  ggtitle("EBS SST (r = 0.27)") +
+  ylab("Anomaly")
+
+sst.reconstruct
+
+ggsave("./figs/N.Pacific_slp_pc1_EBS_sst_SDE_1950-2013.png", width = 6, height = 4, units = 'in')
+
+
+# now plot / compare the low-frequency correspondence
+
+pred.sst.sm = data.frame(t = dat$date,
+                      sst = rollmean(dat$sst, 13, fill = NA),
+                      integrated.slp = rollmean(c(0,-as.numeric(pred_ts)), 13, fill = NA)) ## NB - reversing the sign of integrated SLP
+
+cor(pred.sst.sm$sst, pred.sst.sm$integrated.slp, use = "p")
+
+pred.sst.sm <- pred.sst.sm %>%
+  mutate(integrated.slp = integrated.slp) %>%
+  pivot_longer(cols = -t)
+
+sst.reconstruct.sm <- ggplot(pred.sst.sm, aes(t, value, color = name)) +
+  geom_line() +
+  scale_color_manual(values = cb[c(2,6)], labels = c("Integrated SLP", "SST")) +
+  theme(legend.title = element_blank(),
+        legend.position = c(0.8, 0.95),
+        axis.title.x = element_blank()) +
+  ggtitle("EBS SST - 13 month smooths (r = 0.46)") +
+  ylab("Anomaly")
+
+sst.reconstruct.sm
+
+ggsave("./figs/N.Pacific_slp_pc1_EBS_sst_SDE_1950-2013_13-month_smooths.png", width = 6, height = 4, units = 'in')
+
+# now loop through on 240-month (20 year) rolling windows
+
+# make object to capture correlation
+cor.out <- data.frame()
+
+for(i in 246:nrow(sst)){
+  # i <- 247
+  # fit eof to subset of slp data 
+  
+  # parcel out the 240 months ending at time == i
+  temp.slp <- slp[(i-245):(i-1),] 
+  
+  # and fit EOF
+  pca.temp <- svd.triplet(cov(temp.slp), col.w=weights[,1]) #weighting the columns
+  pc1.temp <- as.matrix(temp.slp) %*% pca.temp$U[,1]
+  
+  # scale
+  pc1.temp <- as.vector(scale(pc1.temp))
+  # names(pc1.temp) <- row.names(temp.slp) # just used this to check the setup!
+  # and smooth
+  pc1.temp.sm <- rollmean(pc1.temp, 6, fill = NA, align = "right")
+  
+  # now select sst, lagged by 1 month wrt pc1.temp.sm
+  temp.sst <- sst[(i-239):i,]
+  
+  temp.yr <- as.numeric(as.character(chron::years(temp.sst[nrow(temp.sst),1])))
+  temp.m <- as.numeric(months(temp.sst[nrow(temp.sst),1]))
+  
+  cor.out <- rbind(cor.out,
+                   data.frame(end.date = lubridate::parse_date_time(x = paste(temp.yr, temp.m, "01"), orders="ymd", tz="America/Anchorage"),
+                              cor = cor(temp.sst[,2], pc1.temp.sm[6:245])))
+  
+}
+
+# add dates in new format to facilitate plotting
+cor.out$end.year <- as.numeric(as.character(chron::years(cor.out$end.date)))
+cor.out$end.month <- as.numeric(as.factor(base::months(cor.out$end.date)))
+
+ggplot(cor.out, aes(end.date, -cor)) +
+  geom_line() +
+scale_x_continuous(labels = c("1951-1970", 
+                              "1961-1980", 
+                              "1971-1990",
+                              "1981-2000",
+                              "1991-2010",
+                              "2001-2020"))
+
+pdo.cors <- data.frame()
+
+for(i in 121:760){
+  # i <- 121
+  temp <- pred.pdo[((i-120):(i+120)),]
+  
+  pdo.cors <- rbind(pdo.cors,
+                    data.frame(cor = cor(temp$sst.pc1, temp$integrated.slp)))
+}
+
+pdo.cors$date <- pred.pdo$t[121:760]
+
+pdo.cor.plot <- ggplot(pdo.cors, aes(date, cor)) +
+  geom_line() +
+  ylab("Correlation (r)") +
+  theme(axis.title.x = element_blank()) +
+  coord_cartesian(xlim = range(pred.pdo$t)) +
+  ggtitle("20-year moving window correlations")
+
+pdo.cor.plot
+
+ggplot(pred.pdo, aes(integrated.slp, sst.pc1)) + 
+  geom_point() +
+  geom_smooth(method = "gam", formula = y ~ s(x, k=4), se = F)
+
+pred.pdo <- pred.pdo %>%
+  mutate(integrated.slp = integrated.slp) %>%
+  pivot_longer(cols = -t)
+
+pdo.reconstruct <- ggplot(pred.pdo, aes(t, value, color = name)) +
+  geom_line() +
+  scale_color_manual(values = cb[c(2,6)], labels = c("Integrated SLP PC2", "SST PC2")) +
+  theme(legend.title = element_blank(),
+        legend.position = c(0.8, 0.95),
+        axis.title.x = element_blank()) +
+  ggtitle("PDO (r = 0.32)") +
+  ylab("Anomaly")
+
+pdo.reconstruct
+
+
+
+####################################################################
+####################################################################
+# now loop through the 21-year windows and calculate relevant values
+# note that I am using 253-month (21 year + 1 month) windows to ease plotting at window centers
+
+for(i in 127:(nrow(ind.weighted.21)-126)){
+  
+  temp.sst <- X1.anom.detr[(i-126):(i+126),] # using anomalies here, NOT scaled, in order to capture importance of variance
+  temp.pca <- svd.triplet(cov(temp.sst), col.w=weight) #weighting the columns
+  pc1 <- temp.sst %*% temp.pca$U[,1]
 
 # load data
 d = read.csv("data/slp_sst_PCs_1948-2021.csv",
