@@ -11,7 +11,7 @@ library(mapproj)
 
 
 # paste URL into browser to download
-URL <- https://apdrc.soest.hawaii.edu/erddap/griddap/hawaii_soest_941a_c863_cca9.nc?hgt[(1948-01-01):1:(2021-12-01T00:00:00Z)][(1000):1:(1000.0)][(20):1:(90.0)][(0.0):1:(357.5)]
+URL <- "https://apdrc.soest.hawaii.edu/erddap/griddap/hawaii_soest_941a_c863_cca9.nc?hgt[(1948-01-01):1:(2021-12-01T00:00:00Z)][(1000):1:(1000.0)][(20):1:(90.0)][(0.0):1:(357.5)]"
 
 dat <- nc_open("./data/hawaii_soest_941a_c863_cca9_a2ed_1d59_9885.nc")
 
