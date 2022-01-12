@@ -189,11 +189,11 @@ for(i in 1970:2013){
   se.wind.temp <- as.vector(clim.dat[clim.dat$year %in% (i-19):i,3])
   
   # save se.wind.temp and win.pc1.oct.apr 
-  ice.rolling.window <- rbind(ice.rolling.window,
+  se.wind.window <- rbind(se.wind.window,
                               data.frame(end.year = i, 
                                          year = (i-19):i, 
-                                         ice.trend = ice.temp,
-                                         height.pc1 = win.pc1))
+                                         se.wind.trend = ice.temp,
+                                         height.pc1 = win.pc1.oct.apr))
   
   
   # and regress
@@ -220,7 +220,7 @@ for(i in 1970:2013){
   temp.m <- temp.m[temp.m %in% c("Jan", "Feb", "Mar")]
   
   # winter means
-  jfm.pc1 <- tapply(temp.pc1.winter, temp.yr, mean)
+  jfm.pc1 <- tapply(temp.pc1.jfm, temp.yr, mean)
   
   # and remove first (don't need as we aren't including winter months from prior calendar year, i.e. Nov and Dec)
   # note that if we want to report this result we may want to refit to years (i-19):i rather than
@@ -253,10 +253,32 @@ ggplot(ice.out, aes(end.year, value)) +
 
 ggsave("./figs/20_yr_rolling_association_ice_trend_hgt_eof1.png", width = 4, height = 6, units = 'in')
 
+ggplot(AO.jfm.out, aes(end.year, r)) + 
+  geom_line() +
+  geom_point()
+
+
+ggsave("./figs/AO-potential_hgt_EOF1_rolling_cor.png", width = 6, height = 4, units = 'in')
+
+se.wind.oct.apr.out  <- se.wind.oct.apr.out %>%
+  pivot_longer(cols = -end.year)
+  
+ggplot(se.wind.oct.apr.out, aes(end.year, value)) +
+  geom_line() +
+  geom_point() +
+  facet_wrap(~name, scales = "free_y", ncol = 1)
+
+ggsave("./figs/20_yr_rolling_association_SE_wind_oct_apr_hgt_EOF1_rolling_cor.png", width = 4, height = 6, units = 'in')
+
 # save output!
 write.csv(ice.out, "./output/geopotential_height_VS.ice_rolling-association.csv", row.names = F)
 write.csv(ice.rolling.window, "./output/rolling_window_ice_trend_and_geopotential_hgt_pc1.csv", row.names = F)
 write.csv(eof1.load.out, "./output/rolling_window_geopotential_hgt_eof1.csv", row.names = F)
+
+write.csv(se.wind.oct.apr.out, "./output/geopotential_height_vs_se_wind_oct_apr_rolling_association.csv", row.names = F)
+write.csv(se.wind.window, "./output/rolling_window_se_wind_and_geopotential_hgt_pc1.csv", row.names = F)
+
+write.csv(AO.jfm.out, "./output/geopotential_height_vs_AO_jfm.csv")
 
 # plot to check
 z <- temp.pca$U[,1]
