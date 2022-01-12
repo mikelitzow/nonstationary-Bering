@@ -98,7 +98,7 @@ eof1.load.out <- data.frame()
 ice.rolling.window <- data.frame()
 
 se.wind.oct.apr.out <- data.frame()
-se.wind.oct.apr.rolling.window <- data.frame
+se.wind.oct.apr.rolling.window <- data.frame()
 
 AO.jfm.out <- data.frame()
 AO.jfm.rolling.window <- data.frame()
@@ -189,7 +189,7 @@ for(i in 1970:2013){
   se.wind.temp <- as.vector(clim.dat[clim.dat$year %in% (i-19):i,3])
   
   # save se.wind.temp and win.pc1.oct.apr 
-  se.wind.window <- rbind(se.wind.window,
+  se.wind.oct.apr.rolling.window <- rbind(se.wind.oct.apr.rolling.window,
                               data.frame(end.year = i, 
                                          year = (i-19):i, 
                                          se.wind.trend = ice.temp,
