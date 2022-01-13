@@ -80,7 +80,7 @@ m <- as.numeric(months(sst$date))
 
 dat <- data.frame(date = lubridate::parse_date_time(x = paste(yr, m, "01"), orders="ymd", tz="America/Anchorage"),
                 sst = sst[,2],
-                slp = c(NA, pc1.sm.6[1:863]))
+                slp = c(NA, pc1.sm.6[1:768]))
 
 # and drop NAs
 dat <- na.omit(dat)
@@ -177,7 +177,7 @@ ggsave("./figs/N.Pacific_slp_pc1_EBS_sst_SDE_1950-2013_13-month_smooths.png", wi
 
 # now loop through on 240-month (20 year) rolling windows
 
-# make object to capture correlation
+# make object to capture correlation and regression output
 cor.out <- data.frame()
 
 for(i in 246:nrow(sst)){
@@ -192,7 +192,7 @@ for(i in 246:nrow(sst)){
   pc1.temp <- as.matrix(temp.slp) %*% pca.temp$U[,1]
   
   # scale
-  pc1.temp <- as.vector(scale(pc1.temp))
+  pc1.temp <- as.vector(scale(-pc1.temp)) # reversing sign!
   # names(pc1.temp) <- row.names(temp.slp) # just used this to check the setup!
   # and smooth
   pc1.temp.sm <- rollmean(pc1.temp, 6, fill = NA, align = "right")
@@ -203,429 +203,287 @@ for(i in 246:nrow(sst)){
   temp.yr <- as.numeric(as.character(chron::years(temp.sst[nrow(temp.sst),1])))
   temp.m <- as.numeric(months(temp.sst[nrow(temp.sst),1]))
   
+  mod <- lm(temp.sst[,2] ~ pc1.temp.sm[6:245])
+  
   cor.out <- rbind(cor.out,
                    data.frame(end.date = lubridate::parse_date_time(x = paste(temp.yr, temp.m, "01"), orders="ymd", tz="America/Anchorage"),
-                              cor = cor(temp.sst[,2], pc1.temp.sm[6:245])))
+                              coef = coef(mod)[2],
+                              r = cor(temp.sst[,2], pc1.temp.sm[6:245]),
+                              r.sq = summary(mod)$r.squared))
   
+
 }
 
-# add dates in new format to facilitate plotting
-cor.out$end.year <- as.numeric(as.character(chron::years(cor.out$end.date)))
-cor.out$end.month <- as.numeric(as.factor(base::months(cor.out$end.date)))
 
-ggplot(cor.out, aes(end.date, -cor)) +
+cor.out <- cor.out %>%
+  pivot_longer(cols = -end.date)
+
+ggplot(cor.out, aes(end.date, value)) +
   geom_line() +
-scale_x_continuous(labels = c("1951-1970", 
-                              "1961-1980", 
-                              "1971-1990",
-                              "1981-2000",
-                              "1991-2010",
-                              "2001-2020"))
-
-pdo.cors <- data.frame()
-
-for(i in 121:760){
-  # i <- 121
-  temp <- pred.pdo[((i-120):(i+120)),]
+  facet_wrap(~name, scales = "free_y", ncol = 1)
   
-  pdo.cors <- rbind(pdo.cors,
-                    data.frame(cor = cor(temp$sst.pc1, temp$integrated.slp)))
-}
 
-pdo.cors$date <- pred.pdo$t[121:760]
+ggsave("./figs/20_year_SLP_SDE_vs_SST")
 
-pdo.cor.plot <- ggplot(pdo.cors, aes(date, cor)) +
-  geom_line() +
-  ylab("Correlation (r)") +
-  theme(axis.title.x = element_blank()) +
-  coord_cartesian(xlim = range(pred.pdo$t)) +
-  ggtitle("20-year moving window correlations")
-
-pdo.cor.plot
-
-ggplot(pred.pdo, aes(integrated.slp, sst.pc1)) + 
-  geom_point() +
-  geom_smooth(method = "gam", formula = y ~ s(x, k=4), se = F)
-
-pred.pdo <- pred.pdo %>%
-  mutate(integrated.slp = integrated.slp) %>%
-  pivot_longer(cols = -t)
-
-pdo.reconstruct <- ggplot(pred.pdo, aes(t, value, color = name)) +
-  geom_line() +
-  scale_color_manual(values = cb[c(2,6)], labels = c("Integrated SLP PC2", "SST PC2")) +
-  theme(legend.title = element_blank(),
-        legend.position = c(0.8, 0.95),
-        axis.title.x = element_blank()) +
-  ggtitle("PDO (r = 0.32)") +
-  ylab("Anomaly")
-
-pdo.reconstruct
-
-
-
-####################################################################
-####################################################################
-# now loop through the 21-year windows and calculate relevant values
-# note that I am using 253-month (21 year + 1 month) windows to ease plotting at window centers
-
-for(i in 127:(nrow(ind.weighted.21)-126)){
-  
-  temp.sst <- X1.anom.detr[(i-126):(i+126),] # using anomalies here, NOT scaled, in order to capture importance of variance
-  temp.pca <- svd.triplet(cov(temp.sst), col.w=weight) #weighting the columns
-  pc1 <- temp.sst %*% temp.pca$U[,1]
-
-# load data
-d = read.csv("data/slp_sst_PCs_1948-2021.csv",
-             stringsAsFactors = FALSE)
-
-# these data are PC1/PC2 of NE Pacific SLPa/SSTa for 1/1948 - 5/2021
-# each PC time series has already been scaled
-
-# plot to check
-plot.dat <- d %>%
-  pivot_longer(cols = c(-m, -month, -year, -variable)) %>%
-  mutate(decimal.year = year + (m-0.5)/12)
-
-ggplot(plot.dat, aes(decimal.year, value)) +
-  geom_line() +
-  facet_grid(name~variable)
-
-# looks as we would expect - white noise for the SLP PCs, red noise for the SST PCs (especially PC1)
-
-# find the decorrelation scale for each SST PC to estimate theta
-
-print(acf(filter(d, variable == "sst")$pc1)) # above 0.5 for lags 1-7
-print(acf(filter(d, variable == "sst")$pc2)) # above 0.5 for lags 1-3
-
-# and find peak cross correlation for PC1s / PC2s
-print(ccf(filter(d, variable == "slp")$pc1, filter(d, variable == "sst")$pc1)) # peak at lag1
-print(ccf(filter(d, variable == "slp")$pc2, filter(d, variable == "sst")$pc2)) # also peak at lag1; much weaker
-
-
-# attempt to reconstruct SST PC1
-d$date = lubridate::parse_date_time(x = paste(d$year,d$month,"01"),orders="ymd",tz="Pacific")
-
-# make a bespoke data set with lagged slp
-sst <- filter(d, variable == "sst")
-slp <- filter(d, variable == "slp")
-
-dat <- data.frame(date = sst$date[2:nrow(sst)],
-                  sst = sst$pc1[2:nrow(sst)],
-                  slp = slp$pc1[1:nrow(slp)-1])
-
-# ar_ls calculates the process deviations after
-# accounting for forcing variables and autocorrelation,
-# (1-gamma)
-ar_ls = function(time,forcing,gamma) {
-  #S(t+1) = (1-GAMMA*DT)*S(t) + F(t)*DT
-  forcing = c(forcing - mean(forcing))
-  T=length(forcing)
-  sig = 0
-
-  for(t in 1:(T-1)) {
-    #sig[t+1] = -theta*sig[t] + forcing[t]
-    sig[t+1] = (1-gamma)*sig[t] + forcing[t]
-  }
-
-  # next estimates are linearly de-trended
-  #s.sig = sig
-  sig = sig - lm(sig ~ time)$fitted.values
-  # interpolate output on the original time grid
-  s.sig=(sig[-1]+sig[-T])/2 # midpoint
-  # final step is normalize
-  s.sig=s.sig/sd(s.sig)
-  return(s.sig)
-}
-
-calc_ss = function(theta) {
-  pred_ts = ar_ls(1:nrow(dat), forcing=dat$slp, theta)
-  ss = sum((pred_ts - dat$sst[-1])^2) # return SS for optim (minimizes by default)
-}
-
-# optimize by default is minimizing (with maximum = FALSE)
-o = optimize(f=calc_ss, interval = c(0,1), maximum=FALSE)
-
-pred_ts = ar_ls(1:nrow(dat), forcing=dat$slp,
-                gamma = o$minimum)
-
-# save gamma estimate for comparison to Bayes version below
-pdo.gamma.ls <- o$minimum
-
-pred.pdo = data.frame(t = dat$date,
-                      sst.pc1 = dat$sst,
-                      integrated.slp = c(0,-as.numeric(pred_ts))) ## NB - reversing the sign of integrated SLP
-
-
-cor(pred.pdo$sst.pc1, pred.pdo$integrated.slp)
-
-pdo.cors <- data.frame()
-
-for(i in 121:760){
-  # i <- 121
-  temp <- pred.pdo[((i-120):(i+120)),]
-  
-  pdo.cors <- rbind(pdo.cors,
-                     data.frame(cor = cor(temp$sst.pc1, temp$integrated.slp)))
-}
-
-pdo.cors$date <- pred.pdo$t[121:760]
-
-pdo.cor.plot <- ggplot(pdo.cors, aes(date, cor)) +
-  geom_line() +
-  ylab("Correlation (r)") +
-  theme(axis.title.x = element_blank()) +
-  coord_cartesian(xlim = range(pred.pdo$t)) +
-  ggtitle("20-year moving window correlations")
-
-pdo.cor.plot
-
-ggplot(pred.pdo, aes(integrated.slp, sst.pc1)) + 
-  geom_point() +
-  geom_smooth(method = "gam", formula = y ~ s(x, k=4), se = F)
-
-pred.pdo <- pred.pdo %>%
-  mutate(integrated.slp = integrated.slp) %>%
-  pivot_longer(cols = -t)
-
-pdo.reconstruct <- ggplot(pred.pdo, aes(t, value, color = name)) +
-  geom_line() +
-  scale_color_manual(values = cb[c(2,6)], labels = c("Integrated SLP PC2", "SST PC2")) +
-  theme(legend.title = element_blank(),
-        legend.position = c(0.8, 0.95),
-        axis.title.x = element_blank()) +
-  ggtitle("PDO (r = 0.32)") +
-  ylab("Anomaly")
-
-pdo.reconstruct
-
-png("./figs/PDO_reconstruction_and_moving_windows.png", width=6, height=8, units='in', res=300)
-ggarrange(pdo.reconstruct, pdo.cor.plot, ncol = 1, labels = "auto")
-dev.off()
-
-
-### compare with NPGO ---------------------
-dat <- data.frame(date = sst$date[2:nrow(sst)],
-                  sst = sst$pc2[2:nrow(sst)],
-                  slp = slp$pc2[1:nrow(slp)-1])
-
-calc_ss = function(theta) {
-  pred_ts = ar_ls(1:nrow(dat), forcing=dat$slp, theta)
-  ss = sum((pred_ts - dat$sst[-1])^2) # return -SS for optim
-}
-
-o = optimize(f=calc_ss, interval = c(0,1))
-
-pred_ts = ar_ls(1:nrow(dat), forcing=dat$slp, gamma = o$minimum)
-
-# save gamma estimate for comparison to Bayes version below
-npgo.gamma.ls <- o$minimum
-
-pred.npgo = data.frame(t = dat$date,
-                      sst.pc2 = dat$sst,
-                      integrated.slp = c(0, -as.numeric(pred_ts))) ## NB - reversing the sign of integrated SLP
-
-
-cor(pred.npgo$sst.pc2, -pred.npgo$integrated.slp)
-
-nrow(pred.npgo)
-
-npgo.cors <- data.frame()
-
-for(i in 121:760){
-  # i <- 121
-  temp <- pred.npgo[((i-120):(i+120)),]
-  
-  npgo.cors <- rbind(npgo.cors,
-                     data.frame(cor = cor(temp$sst.pc2, -temp$integrated.slp)))
-}
-
-npgo.cors$date <- pred.npgo$t[121:760]
-
-npgo.cor.plot <- ggplot(npgo.cors, aes(date, cor)) +
-  geom_line() +
-  ylab("Correlation (r)") +
-  theme(axis.title.x = element_blank()) +
-  coord_cartesian(xlim = range(pred.npgo$t)) +
-  ggtitle("20-year moving window correlations")
-
-npgo.cor.plot
-
-ggplot(pred.npgo, aes(-integrated.slp, sst.pc2)) + # also not linear
-  geom_point() +
-  geom_smooth(method = "gam", formula = y ~ s(x, k=4), se = F)
-
-pred.npgo <- pred.npgo %>%
-  mutate(integrated.slp = -integrated.slp) %>%
-  pivot_longer(cols = -t)
-
-npgo.reconstruct <- ggplot(pred.npgo, aes(t, value, color = name)) +
-  geom_line() +
-  scale_color_manual(values = cb[c(2,6)], labels = c("Integrated SLP PC2", "SST PC2")) +
-  theme(legend.title = element_blank(),
-        legend.position = c(0.9, 0.15),
-        axis.title.x = element_blank()) +
-  ggtitle("NPGO (r = 0.35)") +
-  ylab("Anomaly")
-
-npgo.reconstruct
-
-png("./figs/NPGO_reconstruction_and_moving_windows.png", width=6, height=8, units='in', res=300)
-ggarrange(npgo.reconstruct, npgo.cor.plot, ncol = 1, labels = "auto")
-dev.off()
-
-
-png("./figs/PDO_NPGO_reconstructions.png", width=6, height=8, units='in', res=300)
-ggarrange(pdo.reconstruct, npgo.reconstruct, ncol=1)
-dev.off()
-
-
-### Bayesian version --------------------
-# M = 1 here, because the forcing variable obs_x
-# is already discretized and there's no missing values
-
-# redefine data_list to make it clear what we're working on
-dat <- data.frame(date = sst$date[2:nrow(sst)],
-                  sst = sst$pc2[2:nrow(sst)],
-                  slp = slp$pc2[1:nrow(slp)-1])
-
-data_list = list(
-  M = 1,
-  N = nrow(dat),
-  obs_y = c(dat$sst),
-  obs_x = c(dat$slp)
-)
-
-# first Bayesian model is estimating both gamma, obs_sigma, and sigma,
-# which scales the forcing.
+## fit Bayesian regression to correlation time series -------------------------
+# (can we distinguish the trend from 0?)
+library(plyr)
+library(rstan)
+library(brms)
 library(bayesplot)
-fit = stan("code/ar1_forcing_ss.stan",
-           data = data_list,
-           pars = c("sigma","pred_y","gamma","obs_sigma"),
-           iter=5000,
-           chains=3)
-pars = rstan::extract(fit)
+library(bayesdfa)
+source("./scripts/stan_utils.R")
 
-mcmc_areas(fit, pars = c("sigma","gamma","obs_sigma"))
+# subset data
+dat <- cor.out %>%
+  dplyr::filter(name == "r") %>%
+  dplyr::select(-name) %>%
+  dplyr::rename(r = value) %>%
+  mutate(year = lubridate::year(end.date),
+         month = lubridate::month(end.date)) 
 
-## Second, we can fix the process sd, "sigma" at 1 and re-fit
-fit2 = stan("code/ar1_forcing_ss_fixsig.stan",
-           data = data_list,
-           pars = c("pred_y","gamma","obs_sigma"),
-           iter=5000,
-           chains=3)
-pars = rstan::extract(fit2)
-mcmc_areas(fit2, pars = c("gamma","obs_sigma"))
+# now identify a winter year corresponding to Oct - Sept
+dat$winter.year <- if_else(dat$month %in% 10:12, dat$year + 1, dat$year)
 
-## Third, if we knew the observation error standard deviation of these SST
-# measurements, we could pass that in as a known quantity and only estimate
-# 'gamma' -- this is most directly similar to the SS approach in the optim
-# function above. Note: the mean estimates of the trajectory won't change if
-# you vary obs_sigma, but the precision of the estimates will
-data_list$obs_sigma = 0.1
-fit3 = stan("code/ar1_forcing_ss_fixbothsig.stan",
-            data = data_list,
-            pars = c("pred_y","gamma"),
-            iter=5000,
-            chains=3)
-pars = rstan::extract(fit3)
+dat <- dat %>%
+  dplyr::group_by(winter.year) %>%
+  dplyr::summarise(r = mean(r))
 
-# save gamma estimate for comparison to ls approach
-npgo.gamma.bayes <- median(pars$gamma)
+# check to plot
+# dat$dec.yr <- dat$year + (dat$month-0.5)/12
+# 
+# ggplot(dat, aes(dec.yr, r)) +
+#   geom_line() +
+#   geom_point() 
 
-mcmc_areas(fit3, pars = c("gamma"))
-ggsave("./figs/gamma_npgo_model3.png", width = 6, height = 4, units = 'in')
+ggplot(dat, aes(winter.year, r)) +
+  geom_line() +
+  geom_point()
+  
+# # define model formula
+# dat$month_fac <- as.factor(dat$month)
+
+# slp_sst_cor_formula <-  bf(r ~ s(year, k = 5) + (1 | month_fac/year) + ar(p = 1)) # limiting k to ~ number of decades in time series
+# 
+# # show default priors
+# get_prior(slp_sst_cor_formula, dat)
+# 
+# # set priors
+# priors <- c(set_prior("normal(0, 3)", class = "ar"),
+#             set_prior("normal(0, 3)", class = "b"),
+#             set_prior("normal(0, 3)", class = "Intercept"),
+#             set_prior("student_t(3, 0, 3)", class = "sd"),
+#             set_prior("student_t(3, 0, 3)", class = "sds"),
+#             set_prior("student_t(3, 0, 3)", class = "sigma"))
+
+slp_sst_cor_formula <-  bf(r ~ s(winter.year, k = 4) + ar(p = 1)) # limiting k to ~ number of decades in time series
+
+# show default priors
+get_prior(slp_sst_cor_formula, dat)
+
+# set priors
+priors <- c(set_prior("normal(0, 3)", class = "ar"),
+            set_prior("normal(0, 3)", class = "b"),
+            set_prior("normal(0, 3)", class = "Intercept"),
+            set_prior("student_t(3, 0, 3)", class = "sds"),
+            set_prior("student_t(3, 0, 3)", class = "sigma"))
 
 
-## Now we can also compare estimates across the three models
-library(broom.mixed)
-y1 = tidy(fit, pars=c("pred_y"))
-y1$time = seq(1,nrow(y1))
-y1$model = "ss"
-y2 = tidy(fit2, pars=c("pred_y"))
-y2$time = seq(1,nrow(y2))
-y2$model = "fixsig"
-y3 = tidy(fit3, pars=c("pred_y"))
-y3$time = seq(1,nrow(y3))
-y3$model = "fixboth"
-png("figs/bayes_estimates.png", width=6, height=8, units='in', res=300)
-rbind(y1,y2,y3) %>%
-  ggplot(aes(time, estimate,fill=model,col=model)) +
-  geom_ribbon(aes(ymin=estimate-std.error,ymax=estimate+std.error),alpha=0.1) +
-  geom_line(alpha=0.1)
+# fit model 
+sst_slp_cor_brm <- brm(slp_sst_cor_formula,
+                    prior = priors,
+                    data = dat,
+                    cores = 4, chains = 4, iter = 5000,
+                    save_pars = save_pars(all = TRUE),
+                    control = list(adapt_delta = 0.99999, max_treedepth = 10))
+
+codR_dfa_brm  <- add_criterion(codR_dfa_brm, c("loo", "bayes_R2"), moment_match = TRUE)
+saveRDS(codR_dfa_brm, file = "output/codR_dfa_brm.rds")
+
+codR_dfa_brm <- readRDS("./output/codR_dfa_brm.rds")
+check_hmc_diagnostics(sst_slp_cor_brm$fit)
+neff_lowest(sst_slp_cor_brm$fit)
+rhat_highest(sst_slp_cor_brm$fit)
+summary(sst_slp_cor_brm)
+bayes_R2(sst_slp_cor_brm)
+plot(sst_slp_cor_brm$criteria$loo, "k")
+plot(conditional_effects(sst_slp_cor_brm), ask = FALSE)
+
+ ## fit model without ar()
+slp_sst_cor_formula <-  bf(r ~ s(winter.year, k = 4)) # limiting k to ~ number of decades in time series
+
+# show default priors
+get_prior(slp_sst_cor_formula, dat)
+
+# set priors
+priors <- c(set_prior("normal(0, 3)", class = "b"),
+            set_prior("normal(0, 3)", class = "Intercept"),
+            set_prior("student_t(3, 0, 3)", class = "sds"),
+            set_prior("student_t(3, 0, 3)", class = "sigma"))
+
+
+# fit model 
+sst_slp_cor_brm <- brm(slp_sst_cor_formula,
+                       prior = priors,
+                       data = dat,
+                       cores = 4, chains = 4, iter = 3000,
+                       save_pars = save_pars(all = TRUE),
+                       control = list(adapt_delta = 0.9999, max_treedepth = 12))
+
+
+check_hmc_diagnostics(sst_slp_cor_brm$fit)
+neff_lowest(sst_slp_cor_brm$fit)
+rhat_highest(sst_slp_cor_brm$fit)
+summary(sst_slp_cor_brm)
+bayes_R2(sst_slp_cor_brm)
+plot(sst_slp_cor_brm$criteria$loo, "k")
+plot(conditional_effects(sst_slp_cor_brm), ask = FALSE)
+
+# so these models only show a trend if ar(1) term isn't used!
+# either that means a trend can't be demonstrated given the autocorrelation in the data
+# or I'm asking too much of the model to effectively use the same 
+# term as a covariate and an AR term
+# might be a bad idea to fit any statistical models to these highly overlapping windows!
+
+
+
+## plot sst-slp regression maps for contrasting eras -----------------------------
+# 1950-1968, 1969-1988, 1989-2008
+
+library(maps)
+library(maptools)
+library(mapdata)
+library(fields)
+
+# load slp and cell weights
+slp <- read.csv("./data/north.pacific.slp.anom.csv", row.names = 1)
+
+# get a dates vector to deal with!
+d <- chron::dates(rownames(slp))
+yr <- as.numeric(as.character(chron::years(d)))
+
+# fix bad years
+change <- yr > 2030
+yr[change] <- yr[change]-100
+
+# get y and z
+x <- seq(152.5, 230, 2.5)
+y <- seq(40, 62.5, 2.5)
+
+# load mean EBS sst anomaly
+sst <- read.csv("./data/ebs.sst.anom.csv", row.names = 1)
+sst$year <- as.numeric(as.character(chron::years(sst$date)))
+
+# fix bad year values
+fix <- sst$year > 2030
+sst$year[fix] <- sst$year[fix] - 100
+
+# select the three sst windows (response)
+sst1 <- sst %>%
+  filter(year %in% 1950:1968)
+
+sst2 <- sst %>%
+  filter(year %in% 1969:1988)
+
+sst3 <- sst %>%
+  filter(year %in% 1989:2008)
+
+# select the corresponding slp windows (1 year behind to allow smoothing!)
+slp1 <- slp[yr %in% 1950:1968,]
+
+slp2 <- slp[yr %in% 1968:1988,]
+
+slp3 <- slp[yr %in% 1988:2008,]
+
+# smooth and scale slp
+ff <- function(x) as.vector(scale(rollmean(x, 6, fill = NA, align = "right")))
+slp.sm.1 <- apply(slp1, 2, ff)
+d1 <- chron::dates(rownames(slp))[yr %in% 1950:1968]
+sst1$date
+
+# remove first sst value to accommodate lag
+sst1 <- sst1[2:nrow(sst1),]
+
+# and last row of slp1
+slp.sm.1 <- slp.sm.1[1:(nrow(slp.sm.1)-1),]
+
+# now loop through slp columns, fit lm, and keep coef
+coef1 <- NA
+
+for(i in 1:ncol(slp.sm.1)){
+  # i <- 1
+  mod <- lm(sst1$anom ~ slp.sm.1[,i])
+  coef1[i] <- mod$coefficients[2]
+}
+
+## second window
+# smooth and scale slp
+slp.sm.2 <- apply(slp2, 2, ff)
+d2 <- chron::dates(rownames(slp))[yr %in% 1968:1988]
+sst2$date
+
+# trim slp.sm.2
+slp.sm.2 <- slp.sm.2[12:(nrow(slp.sm.2)-1),]
+
+# now loop through slp columns, fit lm, and keep coef
+coef2 <- NA
+
+for(i in 1:ncol(slp.sm.2)){
+  # i <- 1
+  mod <- lm(sst2$anom ~ slp.sm.2[,i])
+  coef2[i] <- mod$coefficients[2]
+}
+
+## third window
+# smooth and scale slp
+slp.sm.3 <- apply(slp3, 2, ff)
+d3 <- chron::dates(rownames(slp))[yr %in% 1988:2008]
+sst3$date
+d3
+# trim slp.sm.2
+slp.sm.3 <- slp.sm.3[12:(nrow(slp.sm.3)-1),]
+
+# now loop through slp columns, fit lm, and keep coef
+coef3 <- NA
+
+for(i in 1:ncol(slp.sm.3)){
+  # i <- 1
+  mod <- lm(sst3$anom ~ slp.sm.3[,i])
+  coef3[i] <- mod$coefficients[2]
+}
+
+#plot
+
+# get range
+range <- range(coef1, coef2, coef3)
+zlim <- c(range[1], -range[1])
+
+
+png("./figs/era sst-slp regressions.png", 2.5, 6, units="in", res=300)
+
+par(mfcol=c(3,1), mar=c(0,0.5,2,0.5), oma=c(2.5,1.5,2,1.7), mgp=c(3, 0.2, 0))
+
+
+z <- coef1 # mean value for each cell
+z <- t(matrix(z, length(y)))  # Convert vector to matrix and transpose for plotting
+image(x,y,z, col= oce::oce.colorsPalette(64), xlab = "", ylab = "", yaxt="n", xaxt="n", zlim=zlim)
+contour(x,y,z, add=T, col="grey",vfont=c("sans serif", "bold"))
+map('world2Hires', add=T, lwd=1)
+mtext("1950-1968",  cex=1, side=3, adj=0.5)
+
+z <- coef2 # mean value for each cell
+z <- t(matrix(z, length(y)))  # Convert vector to matrix and transpose for plotting
+image(x,y,z, col= oce::oce.colorsPalette(64), xlab = "", ylab = "", yaxt="n", xaxt="n", zlim=zlim)
+contour(x,y,z, add=T, col="grey",vfont=c("sans serif", "bold"))
+map('world2Hires', add=T, lwd=1)
+mtext("1969-1988",  cex=1, side=3, adj=0.5)
+
+z <- coef3 # mean value for each cell
+z <- t(matrix(z, length(y)))  # Convert vector to matrix and transpose for plotting
+image(x,y,z, col= oce::oce.colorsPalette(64), xlab = "", ylab = "", yaxt="n", xaxt="n", zlim=zlim)
+contour(x,y,z, add=T, col="grey",vfont=c("sans serif", "bold"))
+map('world2Hires', add=T, lwd=1)
+mtext("1989-2008",  cex=1, side=3, adj=0.5)
+
 dev.off()
-
-# look at the std error rather than the estimate. this shows that
-png("figs/bayes_sds_of_estimates.png", width=6, height=8, units='in', res=300)
-rbind(y1,y2,y3) %>%
-  ggplot(aes(time, log(std.error),fill=model,col=model)) +
-  #geom_ribbon(aes(ymin=estimate-std.error,ymax=estimate+std.error),alpha=0.1) +
-  geom_line(alpha=0.5) +
-  ylab("Ln(std.error of estimate")
-dev.off()
-
-# recalculate correlations with Bayesian estimates
-pred.npgo = data.frame(t = dat$date,
-                      sst.pc2 = dat$sst,
-                      integrated.slp = c(0,-as.numeric(pred_ts)))
-cor(pred.npgo$sst.pc2, -y1$estimate)
-cor(pred.npgo$sst.pc2, -y2$estimate)
-cor(pred.npgo$sst.pc2, -y3$estimate)
-
-## Compare with Bayesian model of PDO -------------------------------
-
-dat <- data.frame(date = sst$date[2:nrow(sst)],
-                  sst = sst$pc1[2:nrow(sst)],
-                  slp = slp$pc1[1:nrow(slp)-1])
-
-data_list = list(
-  M = 1,
-  N = nrow(dat),
-  obs_y = c(dat$sst),
-  obs_x = c(dat$slp)
-)
-
-# fit to model 3 - closest to SS approach
-
-data_list$obs_sigma = 0.1
-
-pdofit3 = stan("code/ar1_forcing_ss_fixbothsig.stan",
-            data = data_list,
-            pars = c("pred_y","gamma"),
-            iter=5000,
-            chains=3)
-pars = rstan::extract(pdofit3)
-
-# save gamma estimate for comparison to ls approach
-pdo.gamma.bayes <- median(pars$gamma)
-
-# and plot this comparison
-plot.gamma <- data.frame(pdo_least_squares = pdo.gamma.ls,
-                         pdo_bayes = pdo.gamma.bayes,
-                         npgo_least_squares = npgo.gamma.ls,
-                         npgo_bayes = npgo.gamma.bayes)
-
-plot.gamma <- pivot_longer(plot.gamma, cols = 1:4)
-
-
-ggplot(plot.gamma, aes(name, value)) +
-  geom_col()
-
-ggsave("./figs/gamma_estimates_ls_bayes.png", width = 5, height = 4, units = 'in')
-
-
-
-mcmc_areas(pdofit3, pars = c("gamma"))
-ggsave("./figs/gamma_pdo_model3.png", width = 6, height = 4, units = 'in')
-
-y3 = tidy(pdofit3, pars=c("pred_y"))
-y3$time = seq(1,nrow(y3))
-
-
-# recalculate correlations with Bayesian estimates
-pred.pdo = data.frame(t = dat$date,
-                       sst.pc1 = dat$sst,
-                       integrated.slp = c(0,-as.numeric(pred_ts)))
-
-cor(pred.pdo$sst.pc1, y3$estimate)
 

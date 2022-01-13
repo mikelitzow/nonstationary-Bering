@@ -204,12 +204,67 @@ for(i in 1970:2013){
                               coef = coef(mod)[2],
                               r = cor(se.wind.temp, win.pc1.oct.apr, use ="p"),
                               r.sq = summary(mod)$r.squared))
-  #####################
-  # AO.jfm vs. EOF1.jfm correlations
+  # #####################
+  # # AO.jfm vs. EOF1.jfm correlations
+  # # separate out Jan - Mar values
+  # temp.m <- months(rownames(temp.hgt))
+  # temp.yr <- as.numeric(as.character(years(rownames(temp.hgt))))
+  # 
+  # # correct
+  # change <- temp.yr > 2030
+  # temp.yr[change] <- temp.yr[change] - 100
+  # 
+  # # JFM only
+  # temp.pc1.jfm <- temp.pc1[temp.m %in% c("Jan", "Feb", "Mar")]
+  # temp.yr <- temp.yr[temp.m %in% c("Jan", "Feb", "Mar")]
+  # temp.m <- temp.m[temp.m %in% c("Jan", "Feb", "Mar")]
+  # 
+  # # winter means
+  # jfm.pc1 <- tapply(temp.pc1.jfm, temp.yr, mean)
+  # 
+  # # and remove first (don't need as we aren't including winter months from prior calendar year, i.e. Nov and Dec)
+  # # note that if we want to report this result we may want to refit to years (i-19):i rather than
+  # # (i - 20):i as is currently done above to accommodate NDJFM at the top of the loop
+  # 
+  # jfm.pc1 <- jfm.pc1[2:21]
+  # 
+  # # get corresponding AO.jfm values
+  # AO.temp <- as.vector(clim.dat[clim.dat$year %in% (i-19):i,2])
+  # 
+  # # save ice.temp and win.pc1 to save 
+  # AO.jfm.rolling.window <- rbind(AO.jfm.rolling.window,
+  #                             data.frame(end.year = i, 
+  #                                        year = (i-19):i, 
+  #                                        AO.jfm = AO.temp,
+  #                                        height.pc1 = jfm.pc1))
+  # # and save correlation
+  # AO.jfm.out <- rbind(AO.jfm.out,
+  #                  data.frame(end.year = i,
+  #                             r = cor(AO.temp, jfm.pc1, use ="p")))
+}
+
+
+## examine AO.jfm - EOF1 correlation separately ---------------------------
+
+#####################
+# AO.jfm vs. EOF1.jfm correlations
+
+AO.jfm.out <- data.frame()
+AO.jfm.rolling.window <- data.frame()
+
+for(i in 1970:2013){
+  # i <- 1970
+  
+  temp.hgt <- hgt.anom[yr %in% c((i-19):i),] # year before to year of 20-yr window
+  
+  temp.pca <- svd.triplet(cov(temp.hgt), col.w=weights[,1]) #weighting the columns
+  
+  temp.pc1 <- scale(as.matrix(temp.hgt) %*% temp.pca$U[,1])
+  
   # separate out Jan - Mar values
   temp.m <- months(rownames(temp.hgt))
   temp.yr <- as.numeric(as.character(years(rownames(temp.hgt))))
-  
+
   # correct
   change <- temp.yr > 2030
   temp.yr[change] <- temp.yr[change] - 100
@@ -218,30 +273,26 @@ for(i in 1970:2013){
   temp.pc1.jfm <- temp.pc1[temp.m %in% c("Jan", "Feb", "Mar")]
   temp.yr <- temp.yr[temp.m %in% c("Jan", "Feb", "Mar")]
   temp.m <- temp.m[temp.m %in% c("Jan", "Feb", "Mar")]
-  
+
   # winter means
   jfm.pc1 <- tapply(temp.pc1.jfm, temp.yr, mean)
-  
-  # and remove first (don't need as we aren't including winter months from prior calendar year, i.e. Nov and Dec)
-  # note that if we want to report this result we may want to refit to years (i-19):i rather than
-  # (i - 20):i as is currently done above to accommodate NDJFM at the top of the loop
-  
-  jfm.pc1 <- jfm.pc1[2:21]
-  
+
   # get corresponding AO.jfm values
   AO.temp <- as.vector(clim.dat[clim.dat$year %in% (i-19):i,2])
-  
+
   # save ice.temp and win.pc1 to save 
   AO.jfm.rolling.window <- rbind(AO.jfm.rolling.window,
-                              data.frame(end.year = i, 
-                                         year = (i-19):i, 
-                                         AO.jfm = AO.temp,
-                                         height.pc1 = jfm.pc1))
+                                 data.frame(end.year = i, 
+                                            year = (i-19):i, 
+                                            AO.jfm = AO.temp,
+                                            height.pc1 = jfm.pc1))
   # and save correlation
   AO.jfm.out <- rbind(AO.jfm.out,
-                   data.frame(end.year = i,
-                              r = cor(AO.temp, jfm.pc1, use ="p")))
-}
+                      data.frame(end.year = i,
+                                 r = cor(AO.temp, jfm.pc1, use ="p")))
+}  
+
+########################
 
 ice.out <- ice.out %>%
   pivot_longer(cols = -end.year)
@@ -253,7 +304,7 @@ ggplot(ice.out, aes(end.year, value)) +
 
 ggsave("./figs/20_yr_rolling_association_ice_trend_hgt_eof1.png", width = 4, height = 6, units = 'in')
 
-ggplot(AO.jfm.out, aes(end.year, r)) + 
+ggplot(AO.jfm.out, aes(end.year, -r)) + 
   geom_line() +
   geom_point()
 
