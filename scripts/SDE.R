@@ -458,32 +458,37 @@ for(i in 1:ncol(slp.sm.3)){
 range <- range(coef1, coef2, coef3)
 zlim <- c(range[1], -range[1])
 
+# draw sebs box for sst area
+box.x <- c(187, 199, 199, 203, 203, 199, 199, 193, 193, 187)
+box.y <- c(61, 61, 59, 59, 57, 57, 55, 55, 53, 53)
 
-png("./figs/era sst-slp regressions.png", 2.5, 6, units="in", res=300)
+png("./figs/era sst-slp regressions.png", 3, 6, units="in", res=300)
 
 par(mfcol=c(3,1), mar=c(0,0.5,2,0.5), oma=c(2.5,1.5,2,1.7), mgp=c(3, 0.2, 0))
-
 
 z <- coef1 # mean value for each cell
 z <- t(matrix(z, length(y)))  # Convert vector to matrix and transpose for plotting
 image(x,y,z, col= oce::oce.colorsPalette(64), xlab = "", ylab = "", yaxt="n", xaxt="n", zlim=zlim)
 contour(x,y,z, add=T, col="grey",vfont=c("sans serif", "bold"))
+polygon(box.x, box.y, border = "red")
 map('world2Hires', add=T, lwd=1)
-mtext("1950-1968",  cex=1, side=3, adj=0.5)
+mtext("d) 1950-1968",  cex=1, side=3, adj=0)
 
 z <- coef2 # mean value for each cell
 z <- t(matrix(z, length(y)))  # Convert vector to matrix and transpose for plotting
 image(x,y,z, col= oce::oce.colorsPalette(64), xlab = "", ylab = "", yaxt="n", xaxt="n", zlim=zlim)
 contour(x,y,z, add=T, col="grey",vfont=c("sans serif", "bold"))
+polygon(box.x, box.y, border = "red")
 map('world2Hires', add=T, lwd=1)
-mtext("1969-1988",  cex=1, side=3, adj=0.5)
+mtext("e) 1969-1988",  cex=1, side=3, adj=0)
 
 z <- coef3 # mean value for each cell
 z <- t(matrix(z, length(y)))  # Convert vector to matrix and transpose for plotting
 image(x,y,z, col= oce::oce.colorsPalette(64), xlab = "", ylab = "", yaxt="n", xaxt="n", zlim=zlim)
 contour(x,y,z, add=T, col="grey",vfont=c("sans serif", "bold"))
+polygon(box.x, box.y, border = "red")
 map('world2Hires', add=T, lwd=1)
-mtext("1989-2008",  cex=1, side=3, adj=0.5)
+mtext("f) 1989-2008",  cex=1, side=3, adj=0)
 
 dev.off()
 
