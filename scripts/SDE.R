@@ -80,7 +80,7 @@ m <- as.numeric(months(sst$date))
 
 dat <- data.frame(date = lubridate::parse_date_time(x = paste(yr, m, "01"), orders="ymd", tz="America/Anchorage"),
                 sst = sst[,2],
-                slp = c(NA, pc1.sm.6[1:768]))
+                slp = c(NA, pc1.sm.6[1:767])) # lagging slp - i.e., slp[6] corresponds to slp[7]
 
 # and drop NAs
 dat <- na.omit(dat)
@@ -121,8 +121,6 @@ o = optimize(f=calc_ss, interval = c(0,1), maximum=FALSE)
 pred_ts = ar_ls(1:nrow(dat), forcing=dat$slp,
                 gamma = o$minimum)
 
-# save gamma estimate for comparison to Bayes version below
-pdo.gamma.ls <- o$minimum
 
 pred.sst = data.frame(t = dat$date,
                       sst = dat$sst,
@@ -223,7 +221,19 @@ ggplot(cor.out, aes(end.date, value)) +
   facet_wrap(~name, scales = "free_y", ncol = 1)
   
 
-ggsave("./figs/20_year_SLP_SDE_vs_SST")
+ggsave("./figs/20_year_SLP_SDE_vs_SST.png", width = 4, height = 6, units = 'in')
+
+
+# and we really just want to plot r values
+r.plot <- cor.out %>%
+  filter(name == "r")
+
+ggplot(r.plot, aes(end.date, value)) +
+  geom_line() +
+  labs(x = "End year", 
+       y = "r")
+
+
 
 ## fit Bayesian regression to correlation time series -------------------------
 # (can we distinguish the trend from 0?)
