@@ -233,7 +233,7 @@ ggplot(r.plot, aes(end.date, value)) +
   labs(x = "End year", 
        y = "r")
 
-
+ggsave("./figs/20_year_SLP_SDE_vs_SST_correlation.png", width = 6, height = 4, units = 'in')
 
 ## fit Bayesian regression to correlation time series -------------------------
 # (can we distinguish the trend from 0?)
