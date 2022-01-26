@@ -436,6 +436,9 @@ sst.reconstruct
     geom_point() +
     geom_smooth(method = "lm", se = F)
   
+  
+  ggsave("./figs/slp pc1-wind by era.png", width = 6, height = 4, units = 'in')
+  
   ##########################################################
   
   
