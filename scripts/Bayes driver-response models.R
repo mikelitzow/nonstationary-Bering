@@ -191,18 +191,43 @@ ce1s_1 <- conditional_effects(wind_sst4, effect = "sst.ann:era", re_formula = NA
 ################################################
 # now sst-biology trend
 
+# temperature data
+sst <- read.csv("./data/ebs.sst.anom.csv", row.names = 1)
+
+str(sst)
+sst$year <- as.numeric(as.character(chron::years(sst$date)))
+sst$month <- as.numeric(months(sst$date))
+
+change <- sst$year > 2030
+sst$year[change] <- sst$year[change] - 100
+
+# get Oct-Apr means (matching wind)
+
+sst.oct.apr <- sst %>%
+  dplyr::filter(month %in% c(10:12, 1:4)) %>%
+  dplyr::mutate(winter.year = dplyr::if_else(month %in% 10:12, year + 1, year)) %>%
+  dplyr::group_by(winter.year) %>%
+  dplyr::summarise(sst.oct.apr = mean(anom)) 
+
+
+sst.oct.apr$sst.oct.apr <- zoo::rollmean(sst.oct.apr$sst.oct.apr, 3, fill=NA)# three-year rolling mean
+
 trends <- read.csv("./output/wind.ice.recruit.dfa.trends.csv")
 
 trends <- trends %>%
-  dplyr::select(year, recruit.trend)
+  dplyr::select(year, recruit.trend) %>%
+  dplyr::rename(winter.year = year)
 
-this.dat <- dplyr::left_join(this.dat, trends)
+this.dat <- dplyr::left_join(trends, sst.oct.apr) %>%
+  dplyr::filter(winter.year %in% 1969:2008) %>%
+  dplyr::mutate(era = dplyr::if_else(winter.year %in% 1969:1988, "1969-1988", "1989-2008"))
 
-ggplot(this.dat, aes(sst.ann, recruit.trend, color = era)) +
+ggplot(this.dat, aes(sst.oct.apr, recruit.trend, color = era)) +
   geom_point() +
   geom_smooth(method = "lm", se = F)
 
 ggsave("./figs/biology-sst by era.png", width = 6, height = 4, units = 'in')
+
 ################################################
 # examine SLP EOF1 as the driver
 
