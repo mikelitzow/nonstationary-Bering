@@ -59,7 +59,7 @@ print(ccf(sst[7:768,2], pc1.sm.7[7:768], lag.max = 10))
 print(ccf(sst[8:768,2], pc1.sm.8[8:768], lag.max = 10))
 print(ccf(sst[9:768,2], pc1.sm.9[9:768], lag.max = 10))
 
-# so - for a first cut, 6 month smooths, lag 1 (i.e., slp averaged over lags -1 : -7)
+# so - for a first cut, 6 month smooths, lag 1 (i.e., slp averaged over lags -1 : -6)
 # appears reasonable
 
 # now we can go back and fit EOF1 to each 20-year rolling window, then fit
