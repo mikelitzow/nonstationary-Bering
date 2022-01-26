@@ -202,7 +202,7 @@ ggplot(this.dat, aes(sst.ann, recruit.trend, color = era)) +
   geom_point() +
   geom_smooth(method = "lm", se = F)
 
-
+ggsave("./figs/biology-sst by era.png", width = 6, height = 4, units = 'in')
 ################################################
 # examine SLP EOF1 as the driver
 
