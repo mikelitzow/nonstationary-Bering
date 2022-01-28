@@ -77,6 +77,7 @@ yr[fix] <- yr[fix] - 100
 
 m <- as.numeric(months(sst$date))
 
+
 dat <- data.frame(date = lubridate::parse_date_time(x = paste(yr, m, "01"), orders="ymd", tz="America/Anchorage"),
                 sst = sst[,2],
                 slp = c(NA, pc1.sm.6[1:767])) # lagging slp - i.e., slp[6] corresponds to slp[7]
@@ -137,7 +138,7 @@ sst.reconstruct <- ggplot(pred.sst, aes(t, value, color = name)) +
   geom_line() +
   scale_color_manual(values = cb[c(2,6)], labels = c("Integrated SLP", "SST")) +
   theme(legend.title = element_blank(),
-        legend.position = c(0.8, 1),
+        legend.position = c(0.8, 0.95),
         axis.title.x = element_blank()) +
   ggtitle("EBS SST (r = 0.27)") +
   ylab("Anomaly")
@@ -163,7 +164,7 @@ sst.reconstruct.sm <- ggplot(pred.sst.sm, aes(t, value, color = name)) +
   geom_line() +
   scale_color_manual(values = cb[c(2,6)], labels = c("Integrated SLP", "SST")) +
   theme(legend.title = element_blank(),
-        legend.position = c(0.8, 1.05),
+        legend.position = c(0.8, 0.95),
         axis.title.x = element_blank()) +
   ggtitle("EBS SST - 13 month smooths (r = 0.46)") +
   ylab("Anomaly")
@@ -227,28 +228,12 @@ ggsave("./figs/20_year_SLP_SDE_vs_SST.png", width = 4, height = 6, units = 'in')
 r.plot <- cor.out %>%
   filter(name == "r")
 
-rolling.window <- ggplot(r.plot, aes(end.date, value)) +
+ggplot(r.plot, aes(end.date, value)) +
   geom_line() +
   labs(x = "End year", 
        y = "r")
 
-rolling.window
-
 ggsave("./figs/20_year_SLP_SDE_vs_SST_correlation.png", width = 6, height = 4, units = 'in')
-
-
-# combine SDE panels
-
-png("./figs/Bering_SDE_plots.png", 
-    width=5.5, height=9, units='in', res=300)
-
-ggpubr::ggarrange(sst.reconstruct, sst.reconstruct.sm, rolling.window, nrow = 3, ncol = 1,
-                  labels = "auto")
-
-dev.off()
-
-
-
 
 ## fit Bayesian regression to correlation time series -------------------------
 # (can we distinguish the trend from 0?)
@@ -497,7 +482,7 @@ image(x,y,z, col= oce::oce.colorsPalette(64), xlab = "", ylab = "", yaxt="n", xa
 contour(x,y,z, add=T, col="grey",vfont=c("sans serif", "bold"))
 polygon(box.x, box.y, border = "red")
 map('world2Hires', add=T, lwd=1)
-mtext("a) 1950-1968",  cex=1, side=3, adj=0)
+mtext("d) 1950-1968",  cex=1, side=3, adj=0)
 
 z <- coef2 # mean value for each cell
 z <- t(matrix(z, length(y)))  # Convert vector to matrix and transpose for plotting
@@ -505,7 +490,7 @@ image(x,y,z, col= oce::oce.colorsPalette(64), xlab = "", ylab = "", yaxt="n", xa
 contour(x,y,z, add=T, col="grey",vfont=c("sans serif", "bold"))
 polygon(box.x, box.y, border = "red")
 map('world2Hires', add=T, lwd=1)
-mtext("b) 1969-1988",  cex=1, side=3, adj=0)
+mtext("e) 1969-1988",  cex=1, side=3, adj=0)
 
 z <- coef3 # mean value for each cell
 z <- t(matrix(z, length(y)))  # Convert vector to matrix and transpose for plotting
@@ -513,7 +498,7 @@ image(x,y,z, col= oce::oce.colorsPalette(64), xlab = "", ylab = "", yaxt="n", xa
 contour(x,y,z, add=T, col="grey",vfont=c("sans serif", "bold"))
 polygon(box.x, box.y, border = "red")
 map('world2Hires', add=T, lwd=1)
-mtext("c) 1989-2008",  cex=1, side=3, adj=0)
+mtext("f) 1989-2008",  cex=1, side=3, adj=0)
 
 dev.off()
 
