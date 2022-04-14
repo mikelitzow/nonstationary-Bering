@@ -9,39 +9,50 @@ source("./scripts/stan_utils.R")
 
 
 ## Read in data --------------------------------------------
-dat <- read.csv("./output/wind.ice.recruit.dfa.trends.csv")
+dat <- read.csv("./data/Bering climate data.csv")
+
+dat <- dat %>%
+  dplyr::select(year, SE.wind.Oct.Apr) %>%
+  dplyr::rename(winter.year = year)
 
 # temperature data
 sst <- read.csv("./data/ebs.sst.anom.csv", row.names = 1)
 
 str(sst)
 sst$year <- as.numeric(as.character(chron::years(sst$date)))
+sst$month <- as.numeric(months(sst$date))
 
-# get annual means (for wind)
+change <- sst$year > 2030
+sst$year[change] <- sst$year[change] - 100
 
-sst.ann <- data.frame(year = 1950:2013,
-                    sst.ann = tapply(sst$anom, sst$year, mean))
+# get Oct-Apr means (matching wind)
 
-dat <- left_join(dat, sst.ann)
+sst.oct.apr <- sst %>%
+  dplyr::filter(month %in% c(10:12, 1:4)) %>%
+  dplyr::mutate(winter.year = dplyr::if_else(month %in% 10:12, year + 1, year)) %>%
+  dplyr::group_by(winter.year) %>%
+  dplyr::summarise(sst.oct.apr = mean(anom)) 
+
+dat <- left_join(dat, sst.oct.apr)
 
 # define three eras for analysis
 dat$era <- case_when(
-  dat$year %in% 1950:1968 ~ "1950-1968",
-  dat$year %in% 1968:1988 ~ "1969-1988",
-  dat$year %in% 1989:2008 ~ "1989-2008",
-  dat$year > 2008 ~ "drop"
+  dat$winter.year %in% 1950:1968 ~ "1950-1968",
+  dat$winter.year %in% 1969:1988 ~ "1969-1988",
+  dat$winter.year %in% 1989:2008 ~ "1989-2008",
+  dat$winter.year > 2008 ~ "drop"
 )
 
 # drop na for analysis
 this.dat <- dat %>%
-  dplyr::select(year, wind.trend, sst.ann, era) %>%
   dplyr::filter(era != "drop")
 
 
-ggplot(this.dat, aes(sst.ann, wind.trend, color = era)) +
+ggplot(this.dat, aes(sst.oct.apr, SE.wind.Oct.Apr, color = era)) +
   geom_point() +
-  geom_smooth(method = "gam", se = F)
+  geom_smooth(method = "lm", se = F)
 
+ggsave("./figs/oct-apr_sst_wind.png", width = 5, height = 4, units = 'in')
 
 ## Fit models -----------------------------------------------
 
@@ -344,8 +355,6 @@ sst.reconstruct
   change <- temp.dat$year > 2030
   temp.dat$year[change] <- temp.dat$year[change] - 100
   
-  # we want smoothed values one month earlier than wind seasonal window
-  # so this would be Sept-March pc1 for Oct-Apr wind
   
   temp.dat$winter.year <- case_when(
     temp.dat$month %in% 9:12 ~ temp.dat$year+1, 
