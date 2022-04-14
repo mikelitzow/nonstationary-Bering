@@ -25,66 +25,11 @@ pc1 <- as.matrix(slp) %*% pca$U[,1]
 # and scale!
 pc1 <- as.vector(scale(pc1))
 
-# load mean EBS sst anomaly
-sst <- read.csv("./data/ebs.sst.anom.csv", row.names = 1)
-
-# examine strongest correlative relationships -
-# at various degrees of slp smoothing and lags
-
-# smooth slp pc1
-pc1.sm.1 <- pc1
-pc1.sm.2 <- rollmean(pc1, 2, fill = NA, align = "right")
-pc1.sm.3 <- rollmean(pc1, 3, fill = NA, align = "right")
-pc1.sm.4 <- rollmean(pc1, 4, fill = NA, align = "right")
-pc1.sm.5 <- rollmean(pc1, 5, fill = NA, align = "right")
-pc1.sm.6 <- rollmean(pc1, 6, fill = NA, align = "right")
-pc1.sm.7 <- rollmean(pc1, 7, fill = NA, align = "right")
-pc1.sm.8 <- rollmean(pc1, 8, fill = NA, align = "right")
-pc1.sm.9 <- rollmean(pc1, 9, fill = NA, align = "right")
-
-# examine cross-correlations
-ccf(sst[,2], pc1.sm.1, lag.max = 10)
-ccf(sst[2:768,2], pc1.sm.2[2:768], lag.max = 10)
-ccf(sst[3:768,2], pc1.sm.3[3:768], lag.max = 10)
-ccf(sst[4:768,2], pc1.sm.4[4:768], lag.max = 10)
-ccf(sst[5:768,2], pc1.sm.5[5:768], lag.max = 10)
-ccf(sst[6:768,2], pc1.sm.6[6:768], lag.max = 10)
-ccf(sst[7:768,2], pc1.sm.7[7:768], lag.max = 10)
-ccf(sst[8:768,2], pc1.sm.8[8:768], lag.max = 10)
-ccf(sst[9:768,2], pc1.sm.9[9:768], lag.max = 10)
-
-print(ccf(sst[5:768,2], pc1.sm.5[5:768], lag.max = 10))
-print(ccf(sst[6:768,2], pc1.sm.6[6:768], lag.max = 10))
-print(ccf(sst[7:768,2], pc1.sm.7[7:768], lag.max = 10))
-print(ccf(sst[8:768,2], pc1.sm.8[8:768], lag.max = 10))
-print(ccf(sst[9:768,2], pc1.sm.9[9:768], lag.max = 10))
-
-# so - for a first cut, 6 month smooths, lag 1 (i.e., slp averaged over lags -1 : -6)
-# appears reasonable
-
-# now we can go back and fit EOF1 to each 20-year rolling window, then fit
-# sst-slp SDE model to those data, and save resulting correlation
+# load regional sst anomaly
+sst <- read.csv("./data/regional_monthly_sst.csv")
 
 
-# first, fit to the entire time series
-
-# make a data frame
-yr <- as.numeric(as.character(chron::years(sst$date)))
-
-# and fix incorrect years!
-fix <- yr > 2030
-yr[fix] <- yr[fix] - 100
-
-m <- as.numeric(months(sst$date))
-
-dat <- data.frame(date = lubridate::parse_date_time(x = paste(yr, m, "01"), orders="ymd", tz="America/Anchorage"),
-                sst = sst[,2],
-                slp = c(NA, pc1.sm.6[1:767])) # lagging slp - i.e., slp[6] corresponds to slp[7]
-
-# and drop NAs
-dat <- na.omit(dat)
-
-
+# define functions
 # ar_ls calculates the process deviations after
 # accounting for forcing variables and autocorrelation,
 # (1-gamma)
@@ -109,16 +54,41 @@ ar_ls = function(time,forcing,gamma) {
   return(s.sig)
 }
 
-calc_ss = function(theta) {
-  pred_ts = ar_ls(1:nrow(dat), forcing=dat$slp, theta)
-  ss = sum((pred_ts - dat$sst)^2) # return SS for optim (minimizes by default)
-}
+# vector of decorrelation scales
+decor <- 1:12
 
-# optimize by default is minimizing (with maximum = FALSE)
-o = optimize(f=calc_ss, interval = c(0,1), maximum=FALSE)
+# object to catch results
+cor.out <- data.frame()
 
-pred_ts = ar_ls(1:nrow(dat), forcing=dat$slp,
-                gamma = o$minimum)
+regions <- unique(sst$region)
+
+for(r in 1:length(regions)){ # loop through regions
+# r <- 1  
+# set up data   
+  
+temp.sst <- sst %>%
+  filter(region == regions[r])
+
+  dat <- data.frame(date = temp.sst$date,
+                    sst = temp.sst[,2],
+                    slp.0 = pc1,
+                    slp.1 = c(NA, pc1[1:767]),
+                    slp.2 = c(NA, NA, pc1[1:766]),
+                    slp.3 = c(NA, NA, NA, pc1[1:765]),
+                    slp.4 = c(NA, NA, NA, NA, pc1[1:764]),
+                    slp.5 = c(NA, NA, NA, NA, NA, pc1[1:763]),
+                    slp.6 = c(NA, NA, NA, NA, NA, NA, pc1[1:762]))
+  
+  
+  # and drop NAs
+  dat <- na.omit(dat)
+
+for(l in 3:ncol(dat)){ # loop through lags
+
+for(i in 1:length(decor)){ # loop through decorrelation scale
+  
+pred_ts = ar_ls(1:nrow(dat), forcing=dat[,l],
+                gamma = 1/decor[i])
 
 
 pred.sst = data.frame(t = dat$date,
@@ -126,101 +96,158 @@ pred.sst = data.frame(t = dat$date,
                       integrated.slp = c(0,-as.numeric(pred_ts))) ## NB - reversing the sign of integrated SLP
 
 
-cor(pred.sst$sst, pred.sst$integrated.slp)
+cor.out <- rbind(cor.out, 
+                 data.frame(region = regions[r],
+                            lag = l - 3,
+                            decor = decor[i],
+                            cor = cor(pred.sst$sst, pred.sst$integrated.slp)))
 
-
-pred.sst <- pred.sst %>%
-  mutate(integrated.slp = integrated.slp) %>%
-  pivot_longer(cols = -t)
-
-sst.reconstruct <- ggplot(pred.sst, aes(t, value, color = name)) +
-  geom_line() +
-  scale_color_manual(values = cb[c(2,6)], labels = c("Integrated SLP", "SST")) +
-  theme(legend.title = element_blank(),
-        legend.position = c(0.8, 1),
-        axis.title.x = element_blank()) +
-  ggtitle("EBS SST (r = 0.27)") +
-  ylab("Anomaly")
-
-sst.reconstruct
-
-ggsave("./figs/N.Pacific_slp_pc1_EBS_sst_SDE_1950-2013.png", width = 6, height = 4, units = 'in')
-
-
-# now plot / compare the low-frequency correspondence
-
-pred.sst.sm = data.frame(t = dat$date,
-                      sst = rollmean(dat$sst, 13, fill = NA),
-                      integrated.slp = rollmean(c(0,-as.numeric(pred_ts)), 13, fill = NA)) ## NB - reversing the sign of integrated SLP
-
-cor(pred.sst.sm$sst, pred.sst.sm$integrated.slp, use = "p")
-
-pred.sst.sm <- pred.sst.sm %>%
-  mutate(integrated.slp = integrated.slp) %>%
-  pivot_longer(cols = -t)
-
-sst.reconstruct.sm <- ggplot(pred.sst.sm, aes(t, value, color = name)) +
-  geom_line() +
-  scale_color_manual(values = cb[c(2,6)], labels = c("Integrated SLP", "SST")) +
-  theme(legend.title = element_blank(),
-        legend.position = c(0.8, 1.05),
-        axis.title.x = element_blank()) +
-  ggtitle("EBS SST - 13 month smooths (r = 0.46)") +
-  ylab("Anomaly")
-
-sst.reconstruct.sm
-
-ggsave("./figs/N.Pacific_slp_pc1_EBS_sst_SDE_1950-2013_13-month_smooths.png", width = 6, height = 4, units = 'in')
-
-# now loop through on 240-month (20 year) rolling windows
-
-# make object to capture correlation and regression output
-cor.out <- data.frame()
-
-for(i in 246:nrow(sst)){
-  # i <- 247
-  # fit eof to subset of slp data 
-  
-  # parcel out the 240 months ending at time == i
-  temp.slp <- slp[(i-245):(i-1),] 
-  
-  # and fit EOF
-  pca.temp <- svd.triplet(cov(temp.slp), col.w=weights[,1]) #weighting the columns
-  pc1.temp <- as.matrix(temp.slp) %*% pca.temp$U[,1]
-  
-  # scale
-  pc1.temp <- as.vector(scale(-pc1.temp)) # reversing sign!
-  # names(pc1.temp) <- row.names(temp.slp) # just used this to check the setup!
-  # and smooth
-  pc1.temp.sm <- rollmean(pc1.temp, 6, fill = NA, align = "right")
-  
-  # now select sst, lagged by 1 month wrt pc1.temp.sm
-  temp.sst <- sst[(i-239):i,]
-  
-  temp.yr <- as.numeric(as.character(chron::years(temp.sst[nrow(temp.sst),1])))
-  temp.m <- as.numeric(months(temp.sst[nrow(temp.sst),1]))
-  
-  mod <- lm(temp.sst[,2] ~ pc1.temp.sm[6:245])
-  
-  cor.out <- rbind(cor.out,
-                   data.frame(end.date = lubridate::parse_date_time(x = paste(temp.yr, temp.m, "01"), orders="ymd", tz="America/Anchorage"),
-                              coef = coef(mod)[2],
-                              r = cor(temp.sst[,2], pc1.temp.sm[6:245]),
-                              r.sq = summary(mod)$r.squared))
-  
 
 }
 
+}
+
+}
+
+cor.out
+
+# reset plotting order for regions
+reg.ord <- data.frame(region = regions,
+                      order = 1:6)
+
+cor.out <- left_join(cor.out, reg.ord)
+
+cor.out$region <- reorder(cor.out$region, cor.out$order)
+
+ggplot(cor.out, aes(decor, cor, color = as.factor(lag))) + 
+  geom_line() +
+  geom_point() +
+  facet_wrap(~region) # very different decorrelation scales!
+
+ggsave("./figs/sst-slp_lag_decorrelation_by_region.png", width = 9, height = 6, units = 'in')
+
+decor.use <- cor.out %>%
+  filter(region != "North_Pacific") %>%
+  group_by(region) %>%
+  summarise(decor = decor[which.max(cor)])
+
+# now loop through and fit at the best decorrelation scale for each region
+predicted.sst <- data.frame()
+
+for(i in 1:nrow(decor.use)){
+
+  # i <- 1
+  
+  temp.sst <- sst %>%
+    filter(region == decor.use$region[i])
+  
+  dat <- data.frame(date = temp.sst$date,
+                    sst = temp.sst[,2],
+                    slp.0 = pc1)
+  
+  pred_ts = ar_ls(1:nrow(dat), forcing=dat$slp.0,
+                  gamma = 1/decor.use$decor[i])
+  
+  
+  predicted.sst = rbind(predicted.sst,
+                        data.frame(region = decor.use$region[i],
+                        t = as.Date(temp.sst$date),
+                        sst = dat$sst,
+                        integrated.slp = c(0,-as.numeric(pred_ts))))
+
+}
+  
+predicted.sst <- predicted.sst %>%
+  pivot_longer(cols = c(-region, -t))
+
+ggplot(predicted.sst, aes(t, value, color = name)) +
+  geom_line() +
+  scale_color_manual(values = cb[c(2,6)], labels = c("Integrated SLP", "SST")) +
+  facet_wrap(~region)
+  # could add correlations for each!
+  
+
+
+
+# now loop through on 240-month (20 year) rolling windows
+
+# first, fit EOF to each rolling window of SLP to use for all regions
+slp.pc1.time.series <- data.frame()
+
+for(i in 240:nrow(slp)){ # loop through windows
+# i <- 240
+
+# parcel out the 240 months ending at time == i
+temp.slp <- slp[(i-239):(i),] 
+
+# and fit EOF 
+pca.temp <- svd.triplet(cov(temp.slp), col.w=weights[,1]) #weighting the columns
+pc1.temp <- as.matrix(temp.slp) %*% pca.temp$U[,1]
+
+# scale
+pc1.temp <- as.vector(scale(-pc1.temp)) # reversing sign!
+
+# save
+slp.pc1.time.series <- rbind(slp.pc1.time.series, 
+                             data.frame(i = i,
+                                        pc1.temp = pc1.temp))
+
+}
+
+slp.pc1.time.series <- slp.pc1.time.series %>%
+  rename(window = i)
+
+# make object to capture correlation output
+cor.out <- data.frame()
+
+for(r in 2:(length(regions)-1)){ # excluding N. Pac. and SCC!
+# r <- 2
+  # limit to regions of interest
+  temp.sst <- sst %>%
+    filter(region == regions[r])
+  
+for(i in 240:nrow(temp.sst)){ # loop through windows
+  # i <- 240
+  
+  # now select sst
+
+  temp.sst.window <- temp.sst[(i-239):i,]
+  
+  temp.slp.window <- slp.pc1.time.series %>%
+    filter(window == i)
+  
+  # fit AR(1) model
+  pred_ts = ar_ls(1:nrow(temp.slp.window), forcing=temp.slp.window$pc1.temp,
+                  gamma = 1/decor.use$decor[(r-1)])
+  
+
+  cor.out <- rbind(cor.out,
+                   data.frame(regions = regions[r],
+                              end.date = as.Date(temp.sst.window[nrow(temp.sst.window),3]),
+                              r = cor(temp.sst.window[,2], c(0, as.numeric(pred_ts)))))
+  
+
+} # close window loop
+
+} # close region loop
 
 cor.out <- cor.out %>%
-  pivot_longer(cols = -end.date)
+  pivot_longer(cols = c(-end.date, -regions)) %>%
+  rename(region = regions) %>%
+  left_join(., reg.ord) %>%
+  mutate(region = reorder(region, order))
+
+
 
 ggplot(cor.out, aes(end.date, value)) +
   geom_line() +
-  facet_wrap(~name, scales = "free_y", ncol = 1)
+  facet_wrap(~region, scales = "free_y", ncol = 1) +
+  geom_vline(xintercept = as.Date("1989-01-01"), lty=3) +
+  theme(axis.title.x = element_blank()) +
+  ylab("correlation")
   
 
-ggsave("./figs/20_year_SLP_SDE_vs_SST.png", width = 4, height = 6, units = 'in')
+ggsave("./figs/20_year_SLP_SDE_vs_SST_by region.png", width = 6, height = 9, units = 'in')
 
 
 # and we really just want to plot r values
