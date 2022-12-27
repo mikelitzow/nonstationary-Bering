@@ -1,12 +1,13 @@
-library(ggplot2)
-library(dplyr)
-library(plyr)
+library(tidyverse)
 library(mgcv)
 library(rstan)
 library(brms)
 library(bayesplot)
 source("./scripts/stan_utils.R")
 
+theme_set(theme_bw())
+# set colors
+cb <- c("#999999", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
 
 ## Read in data --------------------------------------------
 dat <- read.csv("./data/Bering climate data.csv")
@@ -233,11 +234,194 @@ this.dat <- dplyr::left_join(trends, sst.oct.apr) %>%
   dplyr::filter(winter.year %in% 1969:2008) %>%
   dplyr::mutate(era = dplyr::if_else(winter.year %in% 1969:1988, "1969-1988", "1989-2008"))
 
+ggplot(this.dat, aes(winter.year, recruit.trend)) +
+  geom_line() + 
+  geom_point()
+
 ggplot(this.dat, aes(sst.oct.apr, recruit.trend, color = era)) +
   geom_point() +
   geom_smooth(method = "lm", se = F)
 
 ggsave("./figs/biology-sst by era.png", width = 6, height = 4, units = 'in')
+
+# fit linear model 
+linear_mod_ebs <- nlme::gls(recruit.trend ~ sst.oct.apr*era, correlation = corAR1(),
+                            data = this.dat)
+
+
+summary(linear_mod_ebs)
+
+## add GOA analysis -------------------------------------
+
+g_dat <- read.csv("./data/GOA community data.csv")
+names(g_dat)[1] <- "year"
+
+# limit to 1969-2008, transpose, convert to matrix for DFA
+# also removing opilio and cod b/c they do not capture a wide 
+# range of sst conditions pre-1988/89
+
+dfa.dat <- g_dat %>%
+  dplyr::filter(year %in% 1969:2008) %>%
+  dplyr::select(-year) %>% 
+  t()
+
+colnames(dfa.dat) <- 1969:2008
+dfa.dat <- as.matrix(dfa.dat)
+
+# find best error structure for 1-trend model
+
+# changing convergence criterion to ensure convergence
+cntl.list = list(minit=200, maxit=20000, allow.degen=FALSE, conv.test.slope.tol=0.1, abstol=0.0001)
+
+# set up forms of R matrices
+
+levels.R = c("diagonal and equal",
+             "diagonal and unequal",
+             "equalvarcov",
+             "unconstrained")
+model.data = data.frame()
+
+# fit models & store results
+for(R in levels.R) {
+  for(m in 1) {  
+    dfa.model = list(A="zero", R=R, m=m)
+    kemz = MARSS::MARSS(dfa.dat, model=dfa.model, control=cntl.list,
+                        form="dfa", z.score=TRUE)
+    model.data = rbind(model.data,
+                       data.frame(R=R,
+                                  m=m,
+                                  logLik=kemz$logLik,
+                                  K=kemz$num.params,
+                                  AICc=kemz$AICc,
+                                  stringsAsFactors=FALSE))
+    assign(paste("kemz", m, R, sep="."), kemz)
+  } # end m loop
+} # end R loop
+
+# calculate delta-AICc scores, sort in descending order, and compare
+
+model.data$dAICc <- model.data$AICc-min(model.data$AICc)
+
+model.data <- model.data %>%
+  arrange(dAICc)
+
+model.data
+
+# diagonal and unequal best, equalvarcov 2nd best
+
+# these best two models return super-small CIs
+# fitting 3nd best model - diagonal and equal
+
+cntl.list = list(minit=200, maxit=30000, allow.degen=FALSE, conv.test.slope.tol=0.1, abstol=0.0001)
+
+model.list = list(A="zero", m=1, R="diagonal and unequal")
+recruit.mod = MARSS::MARSS(dfa.dat, model=model.list, z.score=TRUE, form="dfa", control=cntl.list)
+
+# get CI and plot loadings...
+
+recruit.CI <- MARSSparamCIs(recruit.mod)
+
+recruit.plot.CI <- data.frame(names=rownames(dfa.dat),
+                              mean=recruit.CI$par$Z,
+                              upCI=recruit.CI$par.upCI$Z,
+                              lowCI=recruit.CI$par.lowCI$Z)
+
+dodge <- position_dodge(width=0.9)
+
+
+recruit.plot.CI$names <- reorder(recruit.plot.CI$names, recruit.CI$par$Z)
+
+recruit.loadings.plot <- ggplot(recruit.plot.CI, aes(x=names, y=mean)) +
+  geom_bar(position=dodge, stat="identity", fill=cb[2]) +
+  geom_errorbar(aes(ymax=upCI, ymin=lowCI), position=dodge, width=0.5) +
+  ylab("Loading") +
+  xlab("") +
+  theme_bw() +
+  theme(axis.text.x  = element_text(angle=45, hjust=1,  size=12), legend.title = element_blank(), legend.position = 'top') +
+  geom_hline(yintercept = 0)
+
+recruit.loadings.plot
+
+ggsave("./figs/GOA recruit dfa loadings 1969-2008.png", width=2.5, height=4, units='in')
+
+# plot trend
+recruit.trend <- data.frame(t=1969:2008,
+                            estimate=as.vector(recruit.mod$states),
+                            conf.low=as.vector(recruit.mod$states)-1.96*as.vector(recruit.mod$states.se),
+                            conf.high=as.vector(recruit.mod$states)+1.96*as.vector(recruit.mod$states.se))
+
+
+recruit.trend.plot <- ggplot(recruit.trend, aes(t, estimate)) +
+  theme_bw() +
+  geom_line(color=cb[2]) +
+  geom_hline(yintercept = 0) +
+  geom_ribbon(aes(x=t, ymin=conf.low, ymax=conf.high), linetype=2, alpha=0.1, fill=cb[2]) + 
+  theme(axis.title.x = element_blank()) +
+  ylab("Trend")
+
+recruit.trend.plot
+
+ggsave("./figs/GOA recruit dfa trend 1969-2008.png", width=4, height=2.5, units='in')
+
+# combine plots and save
+
+png("./figs/GOA_recr_dfa_loadings_plot.png", width = 9, height = 3, units = 'in', res = 300)
+
+ggpubr::ggarrange(recruit.loadings.plot, recruit.trend.plot, labels = "auto", nrow = 1)
+
+dev.off()
+
+# load GOA SST data
+goa_clim_dat <- read.csv("./data/GOA environmental data.csv")
+
+# combine GOA recruitment trend and SST with EBS data to plot
+
+ebs_dat <- this.dat %>%
+  dplyr::rename(sst = sst.oct.apr) %>%
+  dplyr::mutate(system = "Eastern Bering Sea")
+
+goa_dat <- recruit.trend %>%
+  dplyr::rename(winter.year = t,
+         recr.trend = estimate) %>%
+  dplyr::select(-conf.high, -conf.low) %>%
+  dplyr::mutate(system = "Gulf of Alaska")
+
+
+goa_clim_dat <- goa_clim_dat %>%
+  dplyr::rename(winter.year = X,
+                sst = SST) %>%
+  dplyr::select(winter.year, sst)
+
+goa_dat <- left_join(goa_dat, goa_clim_dat)
+
+goa_dat <- goa_dat %>%
+  dplyr::mutate(era = if_else(winter.year <= 1988, "1969-1988", "1989-2008")) %>%
+  dplyr::rename(recruit.trend = recr.trend) %>%
+  dplyr::select(winter.year, recruit.trend, sst, era, system)
+
+# reverse trend to match EBS!
+goa_dat$recruit.trend = -goa_dat$recruit.trend
+
+ebs_goa_dat <- rbind(ebs_dat, goa_dat)
+
+ggplot(ebs_goa_dat, aes(sst, recruit.trend, color = era)) +
+  geom_point() +
+  geom_smooth(method = "lm", se=F) +
+  facet_wrap(~system, scales = "free", ncol = 1) +
+  scale_color_manual(values = cb[c(2,6)]) +
+  labs(x = "Winter mean SST (°C)",
+       y = "Recruitment trend")
+
+
+ggsave("./figs/EBS_GOA_recruitment_vs_sst.png", width = 6.5, height = 6, units = 'in')
+
+# fit linear model 
+linear_mod_goa <- nlme::gls(recruit.trend ~ sst*era, correlation = corAR1(),
+                            data = dplyr::filter(ebs_goa_dat, system == "Gulf of Alaska"))
+
+
+summary(linear_mod_goa)
+
 
 ################################################
 # examine SLP EOF1 as the driver
