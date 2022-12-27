@@ -227,6 +227,8 @@ dfa.dat <- dat %>%
   t()
 
 colnames(dfa.dat) <- 1969:2008
+rownames(dfa.dat) <- c("Turbot", "Flathead sole", "Pollock", "Yellowfin sole")
+
 dfa.dat <- as.matrix(dfa.dat)
 
 # find best error structure for 1-trend model
@@ -324,6 +326,14 @@ recruit.trend.plot <- ggplot(recruit.trend, aes(t, estimate)) +
 recruit.trend.plot
 
 ggsave("./figs/EBS recruit dfa trend 1969-2008.png", width=4, height=2.5, units='in')
+
+# save combined version
+png("./figs/EBS_recr_dfa_loadings_plot.png", width = 7, height = 3, units = 'in', res = 300)
+
+ggpubr::ggarrange(recruit.loadings.plot, recruit.trend.plot, labels = "auto", nrow = 1,
+                  widths = c(0.4, 0.6))
+
+dev.off()
 
 # now fit 2nd recruitment DFA model to ____
 
