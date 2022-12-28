@@ -12,6 +12,10 @@ library(ggplot2)
 library(oce)
 library(pracma)
 
+# plot settings
+theme_set(theme_bw())
+cb <- c("#999999", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+
 # http://apdrc.soest.hawaii.edu/erddap/griddap/hawaii_soest_f29d_0f00_8b34.nc?ssh[(1950-01-15):1:(2010-12-15T00:00:00Z)][(52.25):1:(62.25)][(180.25):1:(230.25)]
 
 nc <- nc_open("./data/hawaii_soest_f29d_0f00_8b34_2138_dccb_f22e.nc")
@@ -276,7 +280,58 @@ sst_ndjfm <- sst %>%
 
 # limit to wind and join
 trend <- trend %>%
-  dplyr::select(year, wind.trend)
+  dplyr::select(-recruit.trend)
 
 dat <- left_join(sst_ndjfm, trend) %>%
-  dplyr::mutate(era = case_when())
+  dplyr::filter(year %in% 1951:2008) %>%
+  dplyr::mutate(era = case_when(year <= 1968 ~ "1951-1968",
+                                year %in% 1969:1988 ~ "1969-1988",
+                                year %in% 1989:2008 ~ "1989-2008"))
+
+ggplot(dat, aes(wind.trend, sst_ndjfm, color = era)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = F)
+
+mod1 <- nlme::gls(sst_ndjfm ~ wind.trend*era, correlation = corAR1(),
+                 data = dat)
+
+summary(mod1)
+
+mod2 <- lm(sst_ndjfm ~ wind.trend*era, data = dat)
+
+summary(mod2)
+
+# rolling windows
+dat <- left_join(sst_ndjfm, trend) 
+
+plot_out <- data.frame()
+
+for(i in 1970:2013){
+  # i <- 1970
+temp <- dat %>%
+  filter(year %in% i:(i-19))
+  
+sst.wind.cor <- cor(temp$sst_ndjfm, temp$wind.trend)
+ice.wind.cor <- cor(temp$ice.trend, temp$wind.trend)
+
+plot_out <- rbind(plot_out,
+                  data.frame(window.end = i,
+                             `Wind-sst correlation` = sst.wind.cor,
+                             `Wind-ice correlation` = ice.wind.cor))
+}
+
+
+plot_out <- plot_out %>%
+  pivot_longer(cols = -window.end) 
+
+ggplot(plot_out, aes(window.end, value, color = name)) +
+  geom_hline(yintercept = 0, color = "dark grey") +
+  geom_line() +
+  geom_point() + 
+  labs(x = "Window end",
+       y = "Correlation coefficient") +
+  scale_color_manual(values = c("black", cb[7])) +
+  scale_y_continuous(breaks = seq(-0.75, 0.75, 0.25)) +
+  theme(legend.title = element_blank())
+
+ggsave("./figs/wind_trend_v_ice_sst_rolling_windows.png", width = 6, height = 3, units = 'in')
