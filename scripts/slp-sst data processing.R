@@ -76,6 +76,14 @@ regional.slp <- slp
 poly.x <- c(139, 139, 241, 241, 139) 
 poly.y <- c(29, 68, 68, 29, 29)
 
+# get x and y for plotting later
+
+write.csv(x[x >=139 & x <= 241], "./output/slp_x.csv", row.names = F)
+
+
+write.csv(y[y >=29 & y <= 68], "./output/slp_y.csv", row.names = F)
+
+
 xp <- cbind(poly.x, poly.y)
 loc=cbind(lon, lat)
 check <- in.poly(loc, xp=xp)
