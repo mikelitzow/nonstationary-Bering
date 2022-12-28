@@ -126,6 +126,22 @@ ggplot(cor.out, aes(decor, cor, color = as.factor(lag))) +
 
 ggsave("./figs/sst-slp_lag_decorrelation_by_region.png", width = 9, height = 6, units = 'in')
 
+# plot EBS and GOA for report
+
+
+ggplot(filter(cor.out, region %in% c("Eastern_Bering_Sea", "Gulf_of_Alaska")), aes(decor, cor, color = as.factor(lag))) + 
+  geom_line() +
+  geom_point() +
+  facet_wrap(~region) + # very different decorrelation scales!
+  labs(x = "Decorrelation scale (months)",
+       y = "Correlation coefficient",
+       color = "Lag (months)") +
+  scale_x_continuous(breaks = 1:12)
+  
+ggsave("./figs/sst-slp_lag_decorrelation_by_region_EBS_GOA.png", width = 9, height = 6, units = 'in')
+
+
+
 decor.use <- cor.out %>%
   filter(region != "North_Pacific") %>%
   group_by(region) %>%
@@ -166,8 +182,17 @@ ggplot(predicted.sst, aes(t, value, color = name)) +
   facet_wrap(~region)
   # could add correlations for each!
   
+# plot EBS and GOA for report
+ggplot(filter(predicted.sst, region %in% c("Eastern_Bering_Sea", "Gulf_of_Alaska")), aes(t, value, color = name)) +
+  geom_hline(yintercept = 0) +
+  geom_line() +
+  scale_color_manual(values = cb[c(2,6)], labels = c("Integrated SLP", "SST")) +
+  facet_wrap(~region, scales = "free_y", ncol = 1) +
+  theme(legend.title = element_blank(),
+        axis.title.x = element_blank()) +
+  ylab("Anomaly")
 
-
+ggsave("./figs/EBS_GOA_SST_integrated_SLP_time_series.png", width = 7, height = 5)
 
 # now loop through on 240-month (20 year) rolling windows
 
@@ -249,6 +274,16 @@ ggplot(cor.out, aes(end.date, value)) +
 
 ggsave("./figs/20_year_SLP_SDE_vs_SST_by region.png", width = 6, height = 9, units = 'in')
 
+# plot EBS and GOA for report
+ggplot(filter(cor.out, region %in% c("Eastern_Bering_Sea", "Gulf_of_Alaska")), aes(end.date, value)) +
+  geom_line() +
+  facet_wrap(~region, scales = "free_y", ncol = 1) +
+  geom_vline(xintercept = as.Date("1989-01-01"), lty=3) +
+  theme(axis.title.x = element_blank()) +
+  ylab("Correlation coefficient")
+
+
+ggsave("./figs/20_year_SLP_SDE_vs_SST_by_region_EBS_GOA.png", width = 6, height = 5, units = 'in')
 
 # and we really just want to plot r values
 r.plot <- cor.out %>%
@@ -443,7 +478,7 @@ sst3 <- sst %>%
 # select the corresponding slp windows (1 year behind to allow smoothing!)
 slp1 <- slp[yr %in% 1950:1968,]
 
-slp2 <- slp[yr %in% 1968:1988,]
+slp2 <- slp[yr %in% 1969:1988,]
 
 slp3 <- slp[yr %in% 1988:2008,]
 
@@ -471,11 +506,18 @@ for(i in 1:ncol(slp.sm.1)){
 ## second window
 # smooth and scale slp
 slp.sm.2 <- apply(slp2, 2, ff)
-d2 <- chron::dates(rownames(slp))[yr %in% 1968:1988]
+d2 <- chron::dates(rownames(slp))[yr %in% 1969:1988]
 sst2$date
 
-# trim slp.sm.2
-slp.sm.2 <- slp.sm.2[12:(nrow(slp.sm.2)-1),]
+# # trim slp.sm.2
+# slp.sm.2 <- slp.sm.2[12:(nrow(slp.sm.2)-1),]
+
+# remove first sst value to accommodate lag
+sst2 <- sst2[2:nrow(sst2),]
+
+# and last row of slp1
+slp.sm.2 <- slp.sm.2[1:(nrow(slp.sm.2)-1),]
+
 
 # now loop through slp columns, fit lm, and keep coef
 coef2 <- NA
@@ -514,7 +556,15 @@ zlim <- c(range[1], -range[1])
 box.x <- c(187, 199, 199, 203, 203, 199, 199, 193, 193, 187)
 box.y <- c(61, 61, 59, 59, 57, 57, 55, 55, 53, 53)
 
-png("./figs/era sst-slp regressions.png", 3, 6, units="in", res=300)
+# get x and y for plotting
+x <- read.csv("./output/slp_x.csv")
+x <- x[,1]
+
+y <- read.csv("./output/slp_y.csv")
+y <- y[,1]
+
+
+png("./figs/EBS era sst-slp regressions.png", 3, 6, units="in", res=300)
 
 par(mfcol=c(3,1), mar=c(0,0.5,2,0.5), oma=c(2.5,1.5,2,1.7), mgp=c(3, 0.2, 0))
 
@@ -544,3 +594,213 @@ mtext("c) 1989-2008",  cex=1, side=3, adj=0)
 
 dev.off()
 
+## now same maps for GOA----------
+# load slp and cell weights
+slp <- read.csv("./data/north.pacific.slp.anom.csv", row.names = 1)
+
+# get a dates vector to deal with!
+d <- chron::dates(rownames(slp))
+yr <- as.numeric(as.character(chron::years(d)))
+
+# fix bad years
+change <- yr > 2030
+yr[change] <- yr[change]-100
+
+# load mean GOA sst anomaly
+sst <- read.csv("./data/regional_monthly_sst.csv") %>%
+  filter(region == "Gulf_of_Alaska") %>%
+  dplyr::select(-region) %>%
+  rename(anom = monthly.anom)
+
+sst$year <- as.numeric(as.character(chron::years(sst$date)))
+
+# fix bad year values
+fix <- sst$year > 2030
+sst$year[fix] <- sst$year[fix] - 100
+
+# select the three sst windows (response)
+sst1 <- sst %>%
+  filter(year %in% 1950:1968)
+
+sst2 <- sst %>%
+  filter(year %in% 1969:1988)
+
+sst3 <- sst %>%
+  filter(year %in% 1989:2008)
+
+# select the corresponding slp windows (1 year behind to allow smoothing!)
+slp1 <- slp[yr %in% 1950:1968,]
+
+slp2 <- slp[yr %in% 1969:1988,]
+
+slp3 <- slp[yr %in% 1988:2008,]
+
+# smooth and scale slp
+ff <- function(x) as.vector(scale(rollmean(x, 6, fill = NA, align = "right")))
+slp.sm.1 <- apply(slp1, 2, ff)
+d1 <- chron::dates(rownames(slp))[yr %in% 1950:1968]
+sst1$date
+
+# remove first sst value to accommodate lag
+sst1 <- sst1[2:nrow(sst1),]
+
+# and last row of slp1
+slp.sm.1 <- slp.sm.1[1:(nrow(slp.sm.1)-1),]
+
+# now loop through slp columns, fit lm, and keep coef
+coef1_GOA <- NA
+
+for(i in 1:ncol(slp.sm.1)){
+  # i <- 1
+  mod <- lm(sst1$anom ~ slp.sm.1[,i])
+  coef1_GOA[i] <- mod$coefficients[2]
+}
+
+## second window
+# smooth and scale slp
+slp.sm.2 <- apply(slp2, 2, ff)
+d2 <- chron::dates(rownames(slp))[yr %in% 1969:1988]
+sst2$date
+
+# # trim slp.sm.2
+# slp.sm.2 <- slp.sm.2[12:(nrow(slp.sm.2)-1),]
+
+# remove first sst value to accommodate lag
+sst2 <- sst2[2:nrow(sst2),]
+
+# and last row of slp1
+slp.sm.2 <- slp.sm.2[1:(nrow(slp.sm.2)-1),]
+
+
+# now loop through slp columns, fit lm, and keep coef
+coef2_GOA <- NA
+
+for(i in 1:ncol(slp.sm.2)){
+  # i <- 1
+  mod <- lm(sst2$anom ~ slp.sm.2[,i])
+  coef2_GOA[i] <- mod$coefficients[2]
+}
+
+## third window
+# smooth and scale slp
+slp.sm.3 <- apply(slp3, 2, ff)
+d3 <- chron::dates(rownames(slp))[yr %in% 1988:2008]
+sst3$date
+d3
+# trim slp.sm.2
+slp.sm.3 <- slp.sm.3[12:(nrow(slp.sm.3)-1),]
+
+# now loop through slp columns, fit lm, and keep coef
+coef3_GOA <- NA
+
+for(i in 1:ncol(slp.sm.3)){
+  # i <- 1
+  mod <- lm(sst3$anom ~ slp.sm.3[,i])
+  coef3_GOA[i] <- mod$coefficients[2]
+}
+
+#plot
+
+# get range
+range <- range(coef1_GOA, coef2_GOA, coef3_GOA)
+zlim <- c(range[1], -range[1])
+
+# draw goa box for sst area
+goa.x <- c(201, 201, 205, 208, 225, 231, 201)
+goa.y <- c(55, 56.5, 59, 61, 61, 55, 55)
+
+# get x and y for plotting
+x <- read.csv("./output/slp_x.csv")
+x <- x[,1]
+
+y <- read.csv("./output/slp_y.csv")
+y <- y[,1]
+
+
+png("./figs/GOA era sst-slp regressions.png", 3, 6, units="in", res=300)
+
+par(mfcol=c(3,1), mar=c(0,0.5,2,0.5), oma=c(2.5,1.5,2,1.7), mgp=c(3, 0.2, 0))
+
+z <- coef1_GOA # mean value for each cell
+z <- t(matrix(z, length(y)))  # Convert vector to matrix and transpose for plotting
+image(x,y,z, col= oce::oce.colorsPalette(64), xlab = "", ylab = "", yaxt="n", xaxt="n", zlim=zlim)
+contour(x,y,z, add=T, col="grey",vfont=c("sans serif", "bold"))
+polygon(goa.x, goa.y, border = "red")
+map('world2Hires', add=T, lwd=1)
+mtext("a) 1950-1968",  cex=1, side=3, adj=0)
+
+z <- coef2_GOA # mean value for each cell
+z <- t(matrix(z, length(y)))  # Convert vector to matrix and transpose for plotting
+image(x,y,z, col= oce::oce.colorsPalette(64), xlab = "", ylab = "", yaxt="n", xaxt="n", zlim=zlim)
+contour(x,y,z, add=T, col="grey",vfont=c("sans serif", "bold"))
+polygon(goa.x, goa.y, border = "red")
+map('world2Hires', add=T, lwd=1)
+mtext("b) 1969-1988",  cex=1, side=3, adj=0)
+
+z <- coef3_GOA # mean value for each cell
+z <- t(matrix(z, length(y)))  # Convert vector to matrix and transpose for plotting
+image(x,y,z, col= oce::oce.colorsPalette(64), xlab = "", ylab = "", yaxt="n", xaxt="n", zlim=zlim)
+contour(x,y,z, add=T, col="grey",vfont=c("sans serif", "bold"))
+polygon(goa.x, goa.y, border = "red")
+map('world2Hires', add=T, lwd=1)
+mtext("c) 1989-2008",  cex=1, side=3, adj=0)
+
+dev.off()
+
+# and combine both regions in one plot
+range <- range(coef1_GOA, coef2_GOA, coef3_GOA, coef1, coef2, coef3)
+zlim <- c(range[1], -range[1])
+
+png("./figs/GOA EBS era sst-slp regressions.png", 6.2, 6, units="in", res=300)
+
+par(mfcol=c(3,2), mar=c(0,0.5,2,0.5), oma=c(2.5,1.5,2,1.7), mgp=c(3, 0.2, 0))
+
+z <- coef1 # mean value for each cell
+z <- t(matrix(z, length(y)))  # Convert vector to matrix and transpose for plotting
+image(x,y,z, col= oce::oce.colorsPalette(64), xlab = "", ylab = "", yaxt="n", xaxt="n", zlim=zlim)
+contour(x,y,z, add=T, col="grey",vfont=c("sans serif", "bold"))
+polygon(box.x, box.y, border = "red")
+map('world2Hires', add=T, lwd=1)
+mtext("a) EBS 1950-1968",  cex=1, side=3, adj=0)
+
+z <- coef2 # mean value for each cell
+z <- t(matrix(z, length(y)))  # Convert vector to matrix and transpose for plotting
+image(x,y,z, col= oce::oce.colorsPalette(64), xlab = "", ylab = "", yaxt="n", xaxt="n", zlim=zlim)
+contour(x,y,z, add=T, col="grey",vfont=c("sans serif", "bold"))
+polygon(box.x, box.y, border = "red")
+map('world2Hires', add=T, lwd=1)
+mtext("b) EBS 1969-1988",  cex=1, side=3, adj=0)
+
+z <- coef3 # mean value for each cell
+z <- t(matrix(z, length(y)))  # Convert vector to matrix and transpose for plotting
+image(x,y,z, col= oce::oce.colorsPalette(64), xlab = "", ylab = "", yaxt="n", xaxt="n", zlim=zlim)
+contour(x,y,z, add=T, col="grey",vfont=c("sans serif", "bold"))
+polygon(box.x, box.y, border = "red")
+map('world2Hires', add=T, lwd=1)
+mtext("c) EBS 1989-2008",  cex=1, side=3, adj=0)
+
+z <- coef1_GOA # mean value for each cell
+z <- t(matrix(z, length(y)))  # Convert vector to matrix and transpose for plotting
+image(x,y,z, col= oce::oce.colorsPalette(64), xlab = "", ylab = "", yaxt="n", xaxt="n", zlim=zlim)
+contour(x,y,z, add=T, col="grey",vfont=c("sans serif", "bold"))
+polygon(goa.x, goa.y, border = "red")
+map('world2Hires', add=T, lwd=1)
+mtext("d) GOA 1950-1968",  cex=1, side=3, adj=0)
+
+z <- coef2_GOA # mean value for each cell
+z <- t(matrix(z, length(y)))  # Convert vector to matrix and transpose for plotting
+image(x,y,z, col= oce::oce.colorsPalette(64), xlab = "", ylab = "", yaxt="n", xaxt="n", zlim=zlim)
+contour(x,y,z, add=T, col="grey",vfont=c("sans serif", "bold"))
+polygon(goa.x, goa.y, border = "red")
+map('world2Hires', add=T, lwd=1)
+mtext("e) GOA 1969-1988",  cex=1, side=3, adj=0)
+
+z <- coef3_GOA # mean value for each cell
+z <- t(matrix(z, length(y)))  # Convert vector to matrix and transpose for plotting
+image(x,y,z, col= oce::oce.colorsPalette(64), xlab = "", ylab = "", yaxt="n", xaxt="n", zlim=zlim)
+contour(x,y,z, add=T, col="grey",vfont=c("sans serif", "bold"))
+polygon(goa.x, goa.y, border = "red")
+map('world2Hires', add=T, lwd=1)
+mtext("f) GOA 1989-2008",  cex=1, side=3, adj=0)
+
+dev.off()
