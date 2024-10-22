@@ -58,7 +58,7 @@ ar_ls = function(time,forcing,gamma) {
 decor <- 1:12
 
 # object to catch results
-cor.out <- data.frame()
+cor.out <- p.out <-  data.frame()
 
 regions <- unique(sst$region)
 
@@ -102,6 +102,14 @@ cor.out <- rbind(cor.out,
                             decor = decor[i],
                             cor = cor(pred.sst$sst, pred.sst$integrated.slp)))
 
+# and p-values
+mod <- nlme::gls(sst ~ integrated.slp, correlation = corAR1(), data = pred.sst)
+
+p.out <- rbind(p.out, 
+                 data.frame(region = regions[r],
+                            lag = l - 3,
+                            decor = decor[i],
+                            p_value = summary(mod)$tTable[2,4]))
 
 }
 
@@ -140,12 +148,20 @@ ggplot(filter(cor.out, region %in% c("Eastern_Bering_Sea", "Gulf_of_Alaska")), a
   
 ggsave("./figs/sst-slp_lag_decorrelation_by_region_EBS_GOA.png", width = 9, height = 6, units = 'in')
 
-
-
 decor.use <- cor.out %>%
   filter(region != "North_Pacific") %>%
   group_by(region) %>%
   summarise(decor = decor[which.max(cor)])
+
+# check SST decor scale for GOA and EBS
+report.sst <- sst %>%
+  filter(region %in% c("Eastern_Bering_Sea", "Gulf_of_Alaska"))
+
+
+decor.EBS <- acf(report.sst$monthly.anom[report.sst$region == "Eastern_Bering_Sea"])
+
+decor.GOA <- acf(report.sst$monthly.anom[report.sst$region == "Gulf_of_Alaska"])
+
 
 # now loop through and fit at the best decorrelation scale for each region
 predicted.sst <- data.frame()
@@ -194,6 +210,30 @@ ggplot(filter(predicted.sst, region %in% c("Eastern_Bering_Sea", "Gulf_of_Alaska
 
 ggsave("./figs/EBS_GOA_SST_integrated_SLP_time_series.png", width = 7, height = 5)
 
+# get statistics to report
+## first ebs
+temp.ebs <- predicted.sst %>%
+  filter(region == "Eastern_Bering_Sea") %>%
+  dplyr::select(t, name, value) %>%
+  pivot_wider(names_from = name)
+
+cor(temp.ebs$sst, temp.ebs$integrated.slp) # r = 0.245
+
+mod <- nlme::gls(sst ~ integrated.slp, corAR1(), data = temp.ebs)
+summary(mod)$tTable[2,4] # 0.0251
+
+## now goa
+temp.goa <- predicted.sst %>%
+  filter(region == "Gulf_of_Alaska") %>%
+  dplyr::select(t, name, value) %>%
+  pivot_wider(names_from = name)
+
+cor(temp.goa$sst, temp.goa$integrated.slp) # r = 0.370
+
+mod <- nlme::gls(sst ~ integrated.slp, corAR1(), data = temp.goa)
+summary(mod)$tTable[2,4] # 0.0000123
+
+
 # now loop through on 240-month (20 year) rolling windows
 
 # first, fit EOF to each rolling window of SLP to use for all regions
@@ -223,7 +263,7 @@ slp.pc1.time.series <- slp.pc1.time.series %>%
   rename(window = i)
 
 # make object to capture correlation output
-cor.out <- data.frame()
+cor.out <- p.out <- data.frame()
 
 for(r in 2:(length(regions)-1)){ # excluding N. Pac. and SCC!
 # r <- 2
@@ -251,6 +291,18 @@ for(i in 240:nrow(temp.sst)){ # loop through windows
                               end.date = as.Date(temp.sst.window[nrow(temp.sst.window),3]),
                               r = cor(temp.sst.window[,2], c(0, as.numeric(pred_ts)))))
   
+  # and p-values
+  temp.dat <- data.frame(sst = temp.sst.window[,2],
+                         integrated.slp = c(0, as.numeric(pred_ts))
+  )
+  
+  mod <- nlme::gls(sst ~ integrated.slp, correlation = corAR1(), data = temp.dat)
+  
+  p.out <- rbind(p.out, 
+                 data.frame(region = regions[r],
+                            end.date = as.Date(temp.sst.window[nrow(temp.sst.window),3]),
+                            p_value = summary(mod)$tTable[2,4]))
+  
 
 } # close window loop
 
@@ -261,8 +313,6 @@ cor.out <- cor.out %>%
   rename(region = regions) %>%
   left_join(., reg.ord) %>%
   mutate(region = reorder(region, order))
-
-
 
 ggplot(cor.out, aes(end.date, value)) +
   geom_line() +
@@ -275,15 +325,45 @@ ggplot(cor.out, aes(end.date, value)) +
 ggsave("./figs/20_year_SLP_SDE_vs_SST_by region.png", width = 6, height = 9, units = 'in')
 
 # plot EBS and GOA for report
-ggplot(filter(cor.out, region %in% c("Eastern_Bering_Sea", "Gulf_of_Alaska")), aes(end.date, value)) +
+ebs.goa.cor.plot <- ggplot(filter(cor.out, region %in% c("Eastern_Bering_Sea", "Gulf_of_Alaska")), aes(end.date, value)) +
   geom_line() +
   facet_wrap(~region, scales = "free_y", ncol = 1) +
   geom_vline(xintercept = as.Date("1989-01-01"), lty=3) +
   theme(axis.title.x = element_blank()) +
   ylab("Correlation coefficient")
 
+ebs.goa.cor.plot
 
 ggsave("./figs/20_year_SLP_SDE_vs_SST_by_region_EBS_GOA.png", width = 6, height = 5, units = 'in')
+
+# plot p-values
+p.out <- p.out %>%
+  pivot_longer(cols = c(-end.date, -region)) %>%
+  left_join(., reg.ord) %>%
+  mutate(region = reorder(region, order))
+
+ebs.goa.p.plot <- ggplot(filter(p.out, region %in% c("Eastern_Bering_Sea", "Gulf_of_Alaska")), 
+                         aes(end.date, log(value, 10))) +
+  geom_line() +
+  facet_wrap(~region, scales = "free_y", ncol = 1) +
+  geom_vline(xintercept = as.Date("1989-01-01"), lty=3) +
+  theme(axis.title.x = element_blank()) +
+  scale_y_continuous(breaks = c(-3, -2, -1, 0),
+                     labels = c("0.001", "0.01", "0.1", "1")) +
+  geom_hline(yintercept = -2, lty = 2) +
+  ylab("p-value")
+
+ebs.goa.p.plot
+
+# combined plot
+png("./figs/combined_cor_p_plots.png", width = 8, height = 4, units = 'in', res = 300)
+
+ggpubr::ggarrange(ebs.goa.cor.plot,
+                  ebs.goa.p.plot,
+                  ncol = 2, 
+                  labels = "auto")
+
+dev.off()
 
 # and we really just want to plot r values
 r.plot <- cor.out %>%
