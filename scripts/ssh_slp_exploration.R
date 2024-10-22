@@ -264,7 +264,7 @@ ggplot(sst_ssh_dat, aes(sst_fma, value, color = era)) +
   geom_smooth(method = "lm", se = F) +
   facet_wrap(~name)
 
-## compare sst and wind
+## compare sst and wind ---------------------------
 trend <- read.csv("./output/wind.ice.recruit.dfa.trends.csv")
 
 # get winter (Nov-Mar) SST
@@ -304,7 +304,7 @@ summary(mod2)
 # rolling windows
 dat <- left_join(sst_ndjfm, trend) 
 
-plot_out <- data.frame()
+sst_out <- ice_out <- data.frame()
 
 for(i in 1970:2013){
   # i <- 1970
@@ -314,24 +314,38 @@ temp <- dat %>%
 sst.wind.cor <- cor(temp$sst_ndjfm, temp$wind.trend)
 ice.wind.cor <- cor(temp$ice.trend, temp$wind.trend)
 
-plot_out <- rbind(plot_out,
+sst.mod <- nlme::gls(sst_ndjfm ~ wind.trend, correlation = corAR1(),
+                     data = temp)
+
+ice.mod <- nlme::gls(ice.trend ~ wind.trend, correlation = corAR1(),
+                     data = temp)
+
+sst_out <- rbind(sst_out,
                   data.frame(window.end = i,
-                             `Wind-sst correlation` = sst.wind.cor,
-                             `Wind-ice correlation` = ice.wind.cor))
+                             variable = "SST",
+                             `Correlation` = sst.wind.cor,
+                             fill = if_else(summary(sst.mod)$tTable[2,4] <= 0.1,
+                                         "black", "white")))
+
+ice_out <- rbind(ice_out,
+                 data.frame(window.end = i,
+                            variable = "Ice trend",
+                            `Correlation` = ice.wind.cor,
+                            fill = if_else(summary(ice.mod)$tTable[2,4] <= 0.1,
+                                           "black", "white")))
 }
 
+plot_out <- rbind(ice_out, sst_out)
 
-plot_out <- plot_out %>%
-  pivot_longer(cols = -window.end) 
-
-ggplot(plot_out, aes(window.end, value, color = name)) +
+ggplot(plot_out, aes(window.end, Correlation)) +
   geom_hline(yintercept = 0, color = "dark grey") +
   geom_line() +
-  geom_point() + 
+  geom_point(shape = 21, aes(fill = fill)) +
+  scale_fill_manual(values = c( "black", "white")) +
   labs(x = "Window end",
        y = "Correlation coefficient") +
-  scale_color_manual(values = c("black", cb[7])) +
-  scale_y_continuous(breaks = seq(-0.75, 0.75, 0.25)) +
-  theme(legend.title = element_blank())
+  facet_wrap(~variable, scales = "free_y", ncol = 1) +
+  theme(legend.position = "none") +
+  scale_y_continuous(breaks = seq(-0.75, 0.75, 0.25))
 
-ggsave("./figs/wind_trend_v_ice_sst_rolling_windows.png", width = 6, height = 3, units = 'in')
+ggsave("./figs/wind_trend_v_ice_sst_rolling_windows.png", width = 4, height = 4, units = 'in')
