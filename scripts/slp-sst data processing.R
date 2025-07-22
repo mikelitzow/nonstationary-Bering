@@ -15,24 +15,17 @@ library(mapproj)
  # devtools::install_github("marchtaylor/sinkr")
 
 # load slp
-# identify latest year and month needed
-year <- 2021
-month <- "12"
-query <- c("f19d_3925_d70b.nc?slp")
+download.file("http://apdrc.soest.hawaii.edu/erddap/griddap/hawaii_soest_f19d_3925_d70b.nc?slp[(1948-01-01):1:(2025-06-01T00:00:00Z)][(20):1:(70)][(120):1:(250)]", 
+              destfile = "slp.nc", mode = "wb")
 
-variable <- "slp"
 
-URL <- paste("http://apdrc.soest.hawaii.edu/erddap/griddap/hawaii_soest_", query, "[(1948-01-01):1:(", year, "-",
-               month, "-01T00:00:00Z)][(19.99970054626):1:(69.52169799805)][(120):1:(249.375)]", sep="")
 
-# paste URL into browser to download
-
-dat <- nc_open("data/hawaii_soest_f19d_3925_d70b_f63c_43ff_14ca.nc")
+dat <- nc_open("slp.nc")
 
 x <- ncvar_get(dat, "longitude")
 y <- ncvar_get(dat, "latitude")
 slp <- ncvar_get(dat, "slp", verbose = F)
-dim(slp) # 53 long, 21 lat, 888 months
+dim(slp) # 53 long, 21 lat, 930 months
 
 # need to reverse latitude for plotting!
 # y <- rev(y)
@@ -65,10 +58,10 @@ contour(x,y,z, add=T, col="white",vfont=c("sans serif", "bold"))
 map('world2Hires', add=T, lwd=1)
 
 
-# limit to 1950:2013
-slp <- slp[yr %in% 1950:2013,]
-m <- m[yr %in% 1950:2013]
-yr <- yr[yr %in% 1950:2013]
+# limit to 1950:present
+slp <- slp[yr >=1950,]
+m <- m[yr >=1950]
+yr <- yr[yr >=1950]
 
 
 # let's get a regional PCA for the area affecting the GOA and Bering more or less directly
@@ -111,9 +104,15 @@ X <- regional.slp[,!out]
 
 f <- function(x) tapply(x, m, mean)  # function to compute monthly means for a single time series
 mu <- apply(X, 2, f)	# compute monthly means for each time series (cell)
-mu <- mu[rep(1:12, length(m)/12),]  # replicate means matrix for each year at each location
+mu_all <- mu[rep(1:12, length(m)/12),]  # replicate means matrix for each year at each location
 
-slp.anom <- X - mu   # compute matrix of anomalies
+# add incomplete year if needed
+last_month <- 6 # define last month in time series
+
+if(last_month < 12){
+  mu_all <- rbind(mu_all, mu[1:last_month,])}
+
+slp.anom <- X - mu_all   # compute matrix of anomalies
 
 # save for SDE analysis!
 write.csv(slp.anom, "./data/north.pacific.slp.anom.csv")
@@ -135,14 +134,15 @@ write.csv(weight, "./data/north.pacific.slp.weights.csv")
 
 ## load and process ERSST ------------------------
 
-# download.file("https://coastwatch.pfeg.noaa.gov/erddap/griddap/nceiErsstv5.nc?sst[(1950-01-01):1:(2013-12-01T00:00:00Z)][(0.0):1:(0.0)][(20):1:(66)][(110):1:(250)]", "~temp")
+download.file("https://coastwatch.pfeg.noaa.gov/erddap/griddap/nceiErsstv5.nc?sst[(1950-01-01):1:(2025-06-01T00:00:00Z)][(0.0):1:(0.0)][(20):1:(66)][(110):1:(250)]", 
+destfile = "sst.nc", mode = "wb")
 
 
 
 # load and process SST data
 # nc <- nc_open("~temp")
 
-nc <- nc_open("./data/nceiErsstv5_b279_4822_ef14.nc")
+nc <- nc_open("sst.nc")
 
 # process
 
@@ -177,8 +177,8 @@ map('world2Hires',c('Canada', 'usa', 'USSR', 'Japan', 'Mexico', 'South Korea', '
 
 # extract regional areas
 # EBS polygon
-ebs.x <- c(183, 183, 203, 203, 191) 
-ebs.y <- c(53, 65, 65, 57.5, 53)
+ebs.x <- c(187, 187, 203, 203, 191) 
+ebs.y <- c(53, 61, 61, 57.5, 53)
 
 polygon(ebs.x, ebs.y, border = "red", lwd = 2)
 
@@ -347,19 +347,25 @@ monthly.anomalies <- function(x) tapply(x, m, mean)
 # create blank data frame for catching results
 temp.anomaly.time.series <- data.frame()
 
+last_month <- 6 # define last month in time series
+
 # processing loop
 
 for(i in 1: length(sst.data.names)){
   
-  # i <- 1
+  # i <- 2
   # pull out sst dataframe of interest
   temp.dat <- sst.data.frames[[i]]
   
   # first, calculate monthly anomalies
   mu <- apply(temp.dat, 2, monthly.anomalies)	# compute monthly means for each time series (cell)
-  mu <- mu[rep(1:12, length(m)/12),]  # replicate means matrix for each year at each location
+  mu_all <- mu[rep(1:12, length(m)/12),]  # replicate means matrix for each year at each location
   
-  temp.anom <- temp.dat - mu   # compute matrix of anomalies
+  # add incomplete year if needed
+  if(last_month < 12){
+    mu_all <- rbind(mu_all, mu[1:last_month,])}
+  
+  temp.anom <- temp.dat - mu_all   # compute matrix of anomalies
   
   # calculate weighted monthly means
   temp.monthly.anom <- apply(temp.anom, 1, weighted.cell.mean)
